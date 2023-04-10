@@ -3,6 +3,7 @@
 
 #include <sys/file.h>
 #include <sys/types.h>
+#include <pthread.h>
 
 typedef struct rl_owner rl_owner;
 typedef struct rl_lock rl_lock;
