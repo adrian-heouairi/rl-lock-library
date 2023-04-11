@@ -1,6 +1,6 @@
 CC=gcc
-CFLAGS=-Wall -g -pedantic
-LDLIBS=
+CFLAGS=-Wall -g -pedantic -std=c11
+LDLIBS=-pthread
 ALL=test
 
 all: $(ALL)
