@@ -1,11 +1,11 @@
 /*
- * HEOUAIRI
- * MORON USON
+ * Adrian HEOUAIRI
+ * Guillermo MORON USON
  */
 
 #include "rl_lock_library.h"
-#define NB_OWNERS 8
-#define NB_LOCKS 8
+#define NB_OWNERS 32
+#define NB_LOCKS 32
 #define NB_FILES 256
 
 struct rl_owner
@@ -45,7 +45,7 @@ struct rl_all_files
 };
 
 /*
- * Initializes pmutex for processus synchronization.
+ * Initializes a pthread mutex for process synchronization.
  */
 static int initialize_mutex(pthread_mutex_t *pmutex)
 {
@@ -62,7 +62,7 @@ static int initialize_mutex(pthread_mutex_t *pmutex)
 }
 
 /*
- * Initializes pcond for processus synchronization.
+ * Initializes a pthread cond for process synchronization.
  */
 static int initialize_cond(pthread_cond_t *pcond)
 {
