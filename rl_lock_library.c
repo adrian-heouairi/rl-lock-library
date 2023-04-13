@@ -11,7 +11,7 @@
 #define RL_FREE_FILE NULL
 #define RL_NO_NEXT_LOCK -1
 #define RL_FREE_LOCK -2
-#define RL_NO_LOCKS - 2
+#define RL_NO_LOCKS -2
 
 struct rl_owner {
     pid_t pid;
@@ -79,7 +79,7 @@ static int initialize_cond(pthread_cond_t *pcond) {
 /*
  * If lock is not NULL, moves the owners in lock->lock_owners in order to fit in
  * the lock->nb_owners first cells. If lock->nb_owners is strictly inferior to
- * 0 or strictly superior to NB_OWNERS, or lock is NULL, returns -1.
+ * 0 or strictly superior to RL_MAX_OWNERS, or lock is NULL, returns -1.
  * If lock->nb_owners is superior to the real number of owners, returns -1. If
  * lock->nb_owners is less then the real number of owners (but superior to 0),
  * only the first lock->nb_owners owners will move in order to fit the first
