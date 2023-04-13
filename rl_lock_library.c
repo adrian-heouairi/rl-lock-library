@@ -93,8 +93,8 @@ static int is_owner_free(rl_owner *owner) {
  */
 static void erase_owner(rl_owner *owner) {
     if (owner != NULL) {
-        owner->pid = (pid_t)-1;
-        owner->fd = -1;
+        owner->pid = (pid_t) RL_FREE_OWNER;
+        owner->fd = RL_FREE_OWNER;
     }
 }
 
