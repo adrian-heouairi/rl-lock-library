@@ -4,9 +4,14 @@
  */
 
 #include "rl_lock_library.h"
-#define NB_OWNERS 32
-#define NB_LOCKS 32
-#define NB_FILES 256
+#define RL_MAX_OWNERS 32
+#define RL_MAX_LOCKS 32
+#define RL_MAX_FILES 256
+#define RL_FREE_OWNER -1
+#define RL_FREE_FILE NULL
+#define RL_NO_NEXT_LOCK -1
+#define RL_FREE_LOCK -2
+#define RL_NO_LOCKS - 2
 
 struct rl_owner {
     pid_t pid;
@@ -19,14 +24,14 @@ struct rl_lock {
     off_t len;
     short type; /* F_RDLCK, F_WRLCK */
     size_t nb_owners;
-    rl_owner lock_owners[NB_OWNERS];
+    rl_owner lock_owners[RL_MAX_OWNERS];
 };
 
 struct rl_open_file {
     int first;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
-    rl_lock lock_table[NB_LOCKS];
+    rl_lock lock_table[RL_MAX_LOCKS];
 };
 
 struct rl_descriptor {
@@ -36,7 +41,7 @@ struct rl_descriptor {
 
 struct rl_all_files {
     int nb_files;
-    rl_open_file *open_files[NB_FILES];
+    rl_open_file *open_files[RL_MAX_FILES];
 };
 
 /*
@@ -84,14 +89,17 @@ static int initialize_cond(pthread_cond_t *pcond) {
 static int organize_owners(rl_lock *lock) {
     int i, j;
 
-    if (lock == NULL || lock->nb_owners < 0 || lock->nb_owners > NB_OWNERS)
+    if (lock == NULL || lock->nb_owners < 0 || lock->nb_owners > RL_MAX_OWNERS)
         return -1;
     for (i = 0; i < lock->nb_owners; i++) {
-        if (lock->lock_owners[i].fd == -1) {
+        if (lock->lock_owners[i].fd == RL_FREE_OWNER) {
             j = i + 1;
-            while (j < NB_OWNERS && lock->lock_owners[j].fd == -1)
+            while (
+              j < RL_MAX_OWNERS
+              && lock->lock_owners[j].fd == RL_FREE_OWNER
+            )
                 j++;
-            if (j >= NB_OWNERS)
+            if (j >= RL_MAX_OWNERS)
                 return -1;
             lock->lock_owners[i] = lock->lock_owners[j];
             lock->lock_owners[j].fd = -1;
