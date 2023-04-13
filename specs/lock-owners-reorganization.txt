@@ -1,0 +1,30 @@
+-DESC-
+    Décale autant que possible les éléments de lock.lock_owners vers la gauche.
+    A utiliser après suppression d'un owner d'un lock afin de regrouper les
+    lock owners sur les lock.nb_owners premières cases du tableau. Après
+    adaptation à rl_open_file, servira aussi pour réorganiser les fichiers
+    ouverts dans la structure rl_all_files de chaque processus. Le champ de lock
+    nb_owners est égal au nombre de owners dans le tableau lock_owners.
+    
+    On considère qu'un owner effacé est un élément du tableau lock.lock_owners à
+    l'indice i tel que lock.lock_owners[i].des = -1.
+
+-IN-
+    lock := structure rl_lock
+
+-OUT-
+    entier indiquant erreur ou réussite
+
+-PROC-
+    Si lock.nb_owners < 0 | lock.nb_owners > NB_OWNERS:
+        retourner erreur
+    Pour i de 0 à lock.nb_owners (exclu):
+        Si lock.lock_owners[i].fd = -1:
+            j := i+1
+            Tant que j < NB_OWNERS & lock.lock_owners[j].fd = -1:
+                j++
+            Si j >= NB_OWNERS:
+                retourner erreur
+            lock.lock_owners[i] := lock.lock_owners[j]
+            Effacer lock.lock_owners[j]
+    retourner succès
