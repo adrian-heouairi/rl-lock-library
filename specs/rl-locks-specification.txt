@@ -1,0 +1,25 @@
+Comportement :
+
+- Un verrou rl est associé à un owner (couple PID + fd). Ainsi, lorsqu'un owner modifie un lock, cela n'affecte pas les autres owners.
+- Poser un lock des octets 10 à 20 et des octets 15 à 25 est strictement équivalent à poser un lock des octets 10 à 25. Cela implique qu'on ne peut pas être plusieurs fois l'owner d'un lock : poser deux fois le même verrou est équivalent à le poser une fois.
+- Soit un processus 1 ayant posé un lock en lecture. Si un processus 2 sans lien de parenté demande à poser exactement le même lock sur le même dev+inode, on rajoute simplement le owner 2 dans la liste des owners du lock posé par 1.
+
+Atomicité :
+
+- Il est atomique de relâcher juste une partie d'un lock : si on a posé un lock entre 10 et 30 et qu'on relâche entre 21 et 30, l'opération réussit forcément immédiatement et après cela on possède toujours le lock entre 10 et 20.
+- En supposant qu'il n'y a aucun verrou incompatible sur 21 à 30, l'extension d'un verrou de 10 à 20 en verrou de 10 à 30 ne relâche jamais le lock entre 10 et 20.
+- Le passage d'un verrou en écriture à un verrou en lecture est atomique : même si un autre processus est en train d'attendre pour avoir un verrou en lecture, celui qui passe d'écriture à lecture a la priorité.
+- Lorsqu'un processus est le seul à avoir un verrou en lecture, la conversion en verrou en écriture n'est pas atomique : si un autre processus est en train d'attendre pour avoir le verrou en écriture, il n'est pas garanti que le processus qui possédait le verrou en lecture ait la priorité.
+
+Pose/édition/suppression de verrou :
+
+- Il faut avoir fait open() en lecture pour poser un verrou en lecture. il faut avoir fait open() en écriture pour poser un verrou en écriture.
+- La pose de verrou est possible si et seulement si aucun verrou incompatible posé sur une partie du segment n’a de propriétaire différent du owner qui fait la demande.
+- Une modification de verrou n'affecte que le owner qui en fait la demande.
+- Lever un verrou réussit toujours et n'affecte que le owner qui le demande. Si on ne possède pas le verrou, l'opération réussit.
+- Effectuer rl_close(lfd) enlève lfd_owner de tous les rl_lock de lfd.of.
+- Il est possible de verrouiller des octets après la fin du fichier, mais pas avant le début. Par exemple, un lock commençant à 0 et allant jusqu'à 10 sur un fichier de taille 5 est autorisé. Un lock avec une longueur de segment de 0 est considéré comme allant jusqu'à l'infini.
+- Une demande de lock avec une taille de segment strictement négative n'est pas valide.
+
+
+- à cause du buffering, les fonctions de la bibliothèque stdio ne doivent pas être utilisées avec les locks rl. Il faut utiliser read() et write().
