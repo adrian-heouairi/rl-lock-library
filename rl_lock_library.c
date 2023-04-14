@@ -44,8 +44,10 @@ struct rl_all_files {
     rl_open_file *open_files[RL_MAX_FILES];
 };
 
+/******************************************************************************/
+
 /*
- * Initializes a pthread mutex for process synchronization.
+ * Initializes pmutex for process synchronization.
  */
 static int initialize_mutex(pthread_mutex_t *pmutex) {
     pthread_mutexattr_t mutexattr;
@@ -61,7 +63,7 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
 }
 
 /*
- * Initializes a pthread cond for process synchronization.
+ * Initializes pcond for process synchronization.
  */
 static int initialize_cond(pthread_cond_t *pcond) {
     pthread_condattr_t condattr;
@@ -75,6 +77,28 @@ static int initialize_cond(pthread_cond_t *pcond) {
         return code;
     return pthread_cond_init(pcond, &condattr);
 }
+
+/******************************************************************************/
+
+/*
+ * Returns 1 if owner is free, 0 otherwise. An owner is free if owner->fd equals
+ * RL_FREE_OWNER.
+ */
+static int is_owner_free(rl_owner *owner) {
+    return owner->fd == RL_FREE_OWNER;
+}
+
+/*
+ * Erases the given owner. If owner is NULL, does nothing.
+ */
+static void erase_owner(rl_owner *owner) {
+    if (owner != NULL) {
+        owner->pid = (pid_t) RL_FREE_OWNER;
+        owner->fd = RL_FREE_OWNER;
+    }
+}
+
+/******************************************************************************/
 
 /*
  * If lock is not NULL, moves the owners in lock->lock_owners in order to fit in
@@ -92,17 +116,14 @@ static int organize_owners(rl_lock *lock) {
     if (lock == NULL || lock->nb_owners < 0 || lock->nb_owners > RL_MAX_OWNERS)
         return -1;
     for (i = 0; i < lock->nb_owners; i++) {
-        if (lock->lock_owners[i].fd == RL_FREE_OWNER) {
+        if (is_owner_free(&lock->lock_owners[i])) {
             j = i + 1;
-            while (
-              j < RL_MAX_OWNERS
-              && lock->lock_owners[j].fd == RL_FREE_OWNER
-            )
+            while (j < RL_MAX_OWNERS && is_owner_free(&lock->lock_owners[j]))
                 j++;
             if (j >= RL_MAX_OWNERS)
                 return -1;
             lock->lock_owners[i] = lock->lock_owners[j];
-            lock->lock_owners[j].fd = -1;
+            erase_owner(&lock->lock_owners[j]);
         }
     }
     return 0;
