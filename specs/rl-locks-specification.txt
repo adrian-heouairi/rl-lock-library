@@ -15,7 +15,6 @@ Pose/édition/suppression de verrou :
 
 - Il faut avoir fait open() en lecture pour poser un verrou en lecture. il faut avoir fait open() en écriture pour poser un verrou en écriture.
 - La pose de verrou est possible si et seulement si aucun verrou incompatible posé sur une partie du segment n’a de propriétaire différent du owner qui fait la demande.
-- Une modification de verrou n'affecte que le owner qui en fait la demande.
 - Lever un verrou réussit toujours et n'affecte que le owner qui le demande. Si on ne possède pas le verrou, l'opération réussit.
 - Effectuer rl_close(lfd) enlève lfd_owner de tous les rl_lock de lfd.of.
 - Il est possible de verrouiller des octets après la fin du fichier, mais pas avant le début. Par exemple, un lock commençant à 0 et allant jusqu'à 10 sur un fichier de taille 5 est autorisé. Un lock avec une longueur de segment de 0 est considéré comme allant jusqu'à l'infini.
