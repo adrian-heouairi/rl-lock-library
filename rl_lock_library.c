@@ -47,7 +47,7 @@ struct rl_all_files {
 /******************************************************************************/
 
 /*
- * Initializes a pthread mutex for process synchronization.
+ * Initializes pmutex for process synchronization.
  */
 static int initialize_mutex(pthread_mutex_t *pmutex) {
     pthread_mutexattr_t mutexattr;
@@ -63,7 +63,7 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
 }
 
 /*
- * Initializes a pthread cond for process synchronization.
+ * Initializes pcond for process synchronization.
  */
 static int initialize_cond(pthread_cond_t *pcond) {
     pthread_condattr_t condattr;
@@ -81,8 +81,8 @@ static int initialize_cond(pthread_cond_t *pcond) {
 /******************************************************************************/
 
 /*
- * Returns 1 if owner is free, 0 otherwise. An owner is free if the
- * it file descriptor equals RL_FREE_OWNER.
+ * Returns 1 if owner is free, 0 otherwise. An owner is free if owner->fd equals
+ * RL_FREE_OWNER.
  */
 static int is_owner_free(rl_owner *owner) {
     return owner->fd == RL_FREE_OWNER;
@@ -118,12 +118,12 @@ static int organize_owners(rl_lock *lock) {
     for (i = 0; i < lock->nb_owners; i++) {
         if (is_owner_free(&lock->lock_owners[i])) {
             j = i + 1;
-            while (j < RL_MAX_OWNERS && is_free_owner(&lock->lock_owners[j]))
+            while (j < RL_MAX_OWNERS && is_owner_free(&lock->lock_owners[j]))
                 j++;
             if (j >= RL_MAX_OWNERS)
                 return -1;
             lock->lock_owners[i] = lock->lock_owners[j];
-            erase_owner(lock->lock_owners[j]);
+            erase_owner(&lock->lock_owners[j]);
         }
     }
     return 0;
