@@ -128,3 +128,101 @@ static int organize_owners(rl_lock *lock) {
     }
     return 0;
 }
+
+/*
+ * Returns 1 if o1.pid == o2.pid && o1.fd == o2.fd, 0 otherwise.
+ */
+static int equals(rl_owner o1, rl_owner o2) {
+    return o1.pid == o2.pid && o1.fd == o2.fd;
+}
+
+/******************************************************************************/
+
+/*
+ * Returns 1 if lock is the last lock, that is if lock is not NULL and
+ * lock->next_lock == RL_NO_NEXT_LOCK.
+ */
+static int is_last(rl_lock *lock) {
+    return lock != NULL && lock->next_lock == RL_NO_NEXT_LOCK;
+}
+
+/*
+ * rl_close() closes lfd.fd with close() and deletes all the locks associated to
+ * that file descriptor and the calling process by erasing the corresponding
+ * owner from the lock owners table of each concerned lock. If the corresponding
+ * owner is the last remaining owner of a lock, the lock is also removed from
+ * the lock table of the open file. If the call to close() on lfd.fd fails,
+ * returns -1, thus leaving the lock table unmodified. If 
+ */
+int rl_close(rl_descriptor lfd) {
+    rl_owner lfd_owner;
+    rl_open_file *of;
+    rl_lock *cur, *prev;
+    int i, lock_owners_count, err;
+
+    if (close(lfd.fd) == -1) {
+        perror("close()");
+        return -1;
+    }
+
+    lfd_owner = (rl_owner) {.pid = getpid(), .fd = lfd.fd};
+    of = lfd.of;
+    err = pthread_mutex_lock(&of->mutex);
+    if (err != 0) {
+        fprintf(stderr, "%s\n", strerror(err));
+        return -1;
+    }
+    cur = &of->lock_table[of->first];
+    prev = cur;
+
+    while (1) {
+        /* count owners after erase of lfd_owner */
+        lock_owners_count = 0;
+        for (i = 0; i < cur->nb_owners; i++) {
+            if (equals(cur->lock_owners[i], lfd_owner)) {
+                erase_owner(&cur->lock_owners[i]);
+            } else {
+                lock_owners_count++;
+            }
+        }
+        
+        /* organize owners to fit in nb_owners first cells */
+        if (lock_owners_count != 0) {
+            cur->nb_owners = lock_owners_count;
+            organize_owners(cur);
+        }
+
+        if (is_last(cur)) {
+            /* erase lock if lfd_owner was the last */
+            if (lock_owners_count == 0) {
+                prev->next_lock = RL_NO_NEXT_LOCK;
+                cur->next_lock = RL_FREE_LOCK;
+            }
+            break;
+        } else {
+            if (lock_owners_count == 0) {
+                /* cur is first and has next, next becomes new first */
+                if (cur == &of->lock_table[of->first]){
+                    of->first = cur->next_lock;
+                    cur = &of->lock_table[of->first];
+                    prev->next_lock = RL_FREE_LOCK;
+                    prev = cur;
+                } else { /* cur is neither first nor last */
+                    prev->next_lock = cur->next_lock;
+                    cur->next_lock = RL_FREE_LOCK;
+                    cur = &of->lock_table[prev->next_lock];
+                }
+            } else {
+                prev = cur;
+                cur = &of->lock_table[prev->next_lock];
+            }
+        }
+    }
+
+    err = pthread_mutex_unlock(&of->mutex);
+    if (err != 0) {
+        fprintf(stderr, "%s\n", strerror(err));
+        return -1;
+    }
+    return 0;
+}
