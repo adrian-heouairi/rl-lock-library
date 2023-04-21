@@ -172,18 +172,20 @@ int rl_close(rl_descriptor lfd) {
         fprintf(stderr, "%s\n", strerror(err));
         return -1;
     }
+
+    if (of->first == RL_NO_LOCKS) /* nothing to do */
+        return 0;
+
     cur = &of->lock_table[of->first];
     prev = cur;
-
     while (1) {
         /* count owners after erase of lfd_owner */
         lock_owners_count = 0;
         for (i = 0; i < cur->nb_owners; i++) {
-            if (equals(cur->lock_owners[i], lfd_owner)) {
+            if (equals(cur->lock_owners[i], lfd_owner))
                 erase_owner(&cur->lock_owners[i]);
-            } else {
+            else
                 lock_owners_count++;
-            }
         }
         
         /* organize owners to fit in nb_owners first cells */
@@ -193,10 +195,11 @@ int rl_close(rl_descriptor lfd) {
         }
 
         if (is_last(cur)) {
-            /* erase lock if lfd_owner was the last */
             if (lock_owners_count == 0) {
                 prev->next_lock = RL_NO_NEXT_LOCK;
                 cur->next_lock = RL_FREE_LOCK;
+                if (cur == prev) /* cur is last and first */
+                    of->first = RL_NO_LOCKS;
             }
             break;
         } else {
