@@ -46,6 +46,15 @@ struct rl_all_files {
 
 /******************************************************************************/
 
+/**
+ * The rla.nb_files first cells of the rla.open_files array contain pointers to
+ * the rl_open_file corresponding to all files that have been open with rl_open
+ * by this process.
+ */
+static rl_all_files rla;
+
+/******************************************************************************/
+
 /*
  * Initializes pmutex for process synchronization.
  */
@@ -227,5 +236,20 @@ int rl_close(rl_descriptor lfd) {
         fprintf(stderr, "%s\n", strerror(err));
         return -1;
     }
+    return 0;
+}
+
+/******************************************************************************/
+
+/**
+ * Initializes rla, the static global variable recording all open files. You
+ * must call this function before using the rl library.
+ * @return always 0
+ */
+int rl_init_library() {
+    rla.nb_files = 0;
+    for (int i = 0; i < RL_MAX_FILES; i++)
+        rla.open_files[i] = RL_FREE_FILE;
+    
     return 0;
 }
