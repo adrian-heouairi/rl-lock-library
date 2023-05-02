@@ -7,6 +7,10 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 
 typedef struct rl_owner rl_owner;
 typedef struct rl_lock rl_lock;
