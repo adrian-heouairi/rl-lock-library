@@ -1,0 +1,6 @@
+Principe général:
+    Convertir flock en rl_lock
+    Bloquer rl_open_file
+    Si le placement est possible:
+        Placer rl_lock en maitenant lock_table triée
+    Débloquer rl_open_file
