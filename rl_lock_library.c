@@ -425,6 +425,29 @@ static int seg_overlap(off_t s1, off_t l1, off_t s2, off_t l2) {
 }
 
 /**
+ * @brief Checks if the lock is owned by an rl_owner different than owner
+ * 
+ * This function does not use any locking mechanism to secure the access to
+ * lock, nor tests if owner is in fact an owner of lock.
+ * 
+ * @param lock the lock to check
+ * @param owner the owner to compare the lock owners with
+ * @return 1 if the lock is owned by a different owner, 0 otherwise
+ */
+static int has_different_owner(rl_lock lock, rl_owner owner) {
+    int i;
+    
+    for (i = 0; i < RL_MAX_OWNERS; i++) {
+        rl_owner other = lock.lock_owners[i];
+        if (!is_owner_free(&other)) {
+            if (!equals(other, owner))
+                return 1;
+        }
+    }
+    return 0;
+}
+
+/**
  * @brief 
  * 
  * @param lfd 
