@@ -412,7 +412,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
  * @param l1 the length of the first segment
  * @param s2 the start of the second segment
  * @param l2 the length of the second segment
- * @return int 1 if the segments overlap, 0 otherwise
+ * @return 1 if the segments overlap, 0 otherwise
  */
 static int seg_overlap(off_t s1, off_t l1, off_t s2, off_t l2) {
     if (l1 == 0)
