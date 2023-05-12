@@ -4,10 +4,7 @@
  */
 
 #include "rl_lock_library.h"
-#include <asm-generic/errno.h>
-#include <pthread.h>
-#include <sys/mman.h>
-#include <unistd.h>
+
 #define RL_MAX_OWNERS 32
 #define RL_MAX_LOCKS 32
 #define RL_MAX_FILES 256
