@@ -280,7 +280,8 @@ static int add_to_rla(rl_open_file *rlo) {
  * @param ... the mode (permissions) for the new file, required if O_CREAT flag
  *            is specified
  * @return the rl_descriptor containing the file descriptor returned by open()
- *         and a pointer to the rl_open_file associated to the file
+ *         and a pointer to the rl_open_file associated to the file, or an
+ *         rl_descriptor containing fd -1 and rl_open_file pointer NULL on error
  */
 rl_descriptor rl_open(const char *path, int oflag, ...) {
     va_list va;
@@ -322,8 +323,8 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
     // Problem: process 1 creates the shm and is paused before initializing it
     // then process 2 comes here and the shm exists but is not initialized
     if (shm_res >= 0) {
-        rlo = mmap(0, sizeof(rl_open_file), PROT_READ | PROT_WRITE, MAP_SHARED,
-            shm_res, 0);
+        rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
+            MAP_SHARED, shm_res, 0);
         if (rlo == MAP_FAILED) {
             close(open_res);
             close(shm_res);
@@ -346,8 +347,8 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
             return err_desc;
         }
 
-        rlo = mmap(0, sizeof(rl_open_file), PROT_READ | PROT_WRITE, MAP_SHARED,
-            shm_res2, 0);
+        rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
+            MAP_SHARED, shm_res2, 0);
         if (rlo == MAP_FAILED) {
             close(open_res);
             close(shm_res2);
