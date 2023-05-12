@@ -10,6 +10,16 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 
+#define _POSIX_C_SOURCE 200112L
+
+#include <sys/file.h>
+#include <sys/types.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+#include <signal.h>
+
 #include "rl_lock_library.h"
 
 #define RL_MAX_OWNERS 32
@@ -445,6 +455,96 @@ static int has_different_owner(rl_lock lock, rl_owner owner) {
         }
     }
     return 0;
+}
+
+/**
+ * @brief Computes the starting offset of the lock of the file denoted by fd.
+ * 
+ * @param lck a lock on a region
+ * @param fd the file descriptor of the file to lock
+ * @return the starting offset of the region or -1 if it could not be determined
+ */
+static off_t get_starting_offset(struct flock *lck, int fd) {
+    if (lck == NULL)
+        return -1;
+
+    if (lck->l_whence == SEEK_SET) {
+        if (lck->l_start >= 0)
+            return lck->l_start;
+        else
+            return -1; // before beginning of file !
+    } else if (lck->l_whence == SEEK_CUR || lck->l_whence == SEEK_END) {
+        off_t cur = lseek(fd, 0, lck->l_whence);
+        if (cur == -1)
+            return -1;
+        off_t pos = cur + lck->l_start;
+        if (pos >= 0)
+            return pos;
+        else
+            return -1;
+    }
+    return -1;
+}
+
+/**
+ * @brief Checks if the given lock can be put on the given descriptor
+ * 
+ * @param lck the lock to put
+ * @param lfd the file on which to put the lock
+ * @return 1 if the lock is applicable, 0 if it is not, -1 if an error occured.
+ * If the lock is not applicable because of a lock put by a process that has
+ * died and has not removed its locks, returns the pid of that process.
+ */
+static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
+    if (lck == NULL)
+        return -1;
+
+    if (lck->l_type == F_UNLCK) /* unlock is always applicable */
+        return 1;
+
+    off_t start = get_starting_offset(lck, lfd.fd);
+    if (start == -1)
+        return -1;
+
+    if (lfd.of == NULL)
+        return -1;
+    rl_open_file *open_file = lfd.of;
+    int first = open_file->first;
+    if (first == RL_NO_LOCKS)
+        return 1;
+
+    for (int i = first; i != -1; ) {
+        rl_lock *cur = &open_file->lock_table[i];
+
+        /* if locks overlap check for conflicts */
+        if (seg_overlap(cur->starting_offset, cur->len, start, lck->l_len)) {
+            rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+
+            if ((cur->type == F_RDLCK && lck->l_type == F_WRLCK)
+                || cur->type == F_WRLCK) {
+                if (lck->l_type == F_WRLCK) {
+                    if (has_different_owner(*cur, lfd_owner)) {
+
+                        /* check if owner is still alive */
+                        for (int j = 0; j < cur->nb_owners; j++) {
+                            if (!equals(lfd_owner, cur->lock_owners[i])) {
+                                if (kill(cur->lock_owners[i].pid, 0) == -1) {
+                                    return cur->lock_owners[i].pid;
+                                } else {
+                                    return 0;
+                                }
+                            }
+                        }
+
+                        /* there is a different owner that has not been found */
+                        return -1;
+                    }
+                }
+            }
+        }
+        i = open_file->lock_table[i].next_lock;
+    }
+    return 1;
 }
 
 /**
