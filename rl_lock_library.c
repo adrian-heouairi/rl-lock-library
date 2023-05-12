@@ -4,10 +4,7 @@
  */
 
 #include "rl_lock_library.h"
-#include <asm-generic/errno.h>
-#include <pthread.h>
-#include <sys/mman.h>
-#include <unistd.h>
+
 #define RL_MAX_OWNERS 32
 #define RL_MAX_LOCKS 32
 #define RL_MAX_FILES 256
@@ -273,6 +270,18 @@ static int add_to_rla(rl_open_file *rlo) {
     return 0;
 }
 
+/**
+ * Opens the file with the open() system call (identical parameters). Also does
+ * the memory projection of the rl_open_file associated with the file at path,
+ * creating the shared memory object if it doesn't exist. Returns the
+ * corresponding rl_descriptor.
+ * @param path the relative or absolute path to the file
+ * @param oflag the flags passed to open()
+ * @param ... the mode (permissions) for the new file, required if O_CREAT flag
+ *            is specified
+ * @return the rl_descriptor containing the file descriptor returned by open()
+ *         and a pointer to the rl_open_file associated to the file
+ */
 rl_descriptor rl_open(const char *path, int oflag, ...) {
     va_list va;
     va_start(va, oflag);

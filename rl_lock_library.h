@@ -1,6 +1,8 @@
 #ifndef _RL_LOCK_LIBRARY
 #define _RL_LOCK_LIBRARY
 
+#define _XOPEN_SOURCE 500
+
 #include <sys/file.h>
 #include <sys/types.h>
 #include <pthread.h>
