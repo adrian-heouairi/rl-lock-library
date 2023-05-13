@@ -3,6 +3,13 @@
  * Guillermo MORON USON
  */
 
+#define _XOPEN_SOURCE 500
+
+#include <stdarg.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
 #include "rl_lock_library.h"
 
 #define RL_MAX_OWNERS 32
