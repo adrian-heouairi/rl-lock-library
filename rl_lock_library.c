@@ -348,6 +348,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         
         int trunc_res = ftruncate(shm_res2, sizeof(rl_open_file));
         if (trunc_res == -1) {
+            error:
             close(open_res);
             close(shm_res2);
             shm_unlink(shm_path);
@@ -356,31 +357,15 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
             MAP_SHARED, shm_res2, 0);
-        if (rlo == MAP_FAILED) {
-            close(open_res);
-            close(shm_res2);
-            shm_unlink(shm_path);
-            return err_desc;
-        }
+        if (rlo == MAP_FAILED)
+            goto error;
 
-        if (initialize_mutex(&rlo->mutex)) {
-            close(open_res);
-            close(shm_res2);
-            shm_unlink(shm_path);
-            return err_desc;
-        }
-        if (initialize_cond(&rlo->cond)) {
-            close(open_res);
-            close(shm_res2);
-            shm_unlink(shm_path);
-            return err_desc;
-        }
-        if (pthread_mutex_lock(&rlo->mutex)) {
-            close(open_res);
-            close(shm_res2);
-            shm_unlink(shm_path);
-            return err_desc;
-        }
+        if (initialize_mutex(&rlo->mutex))
+            goto error;
+        if (initialize_cond(&rlo->cond)) 
+            goto error;
+        if (pthread_mutex_lock(&rlo->mutex)) 
+            goto error;
 
         rlo->first = RL_NO_LOCKS;
         for (int i = 0; i < RL_MAX_LOCKS; i++) {
@@ -389,12 +374,8 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
                 erase_owner(&rlo->lock_table[i].lock_owners[j]);
         }
 
-        if (pthread_mutex_unlock(&rlo->mutex)) {
-            close(open_res);
-            close(shm_res2);
-            shm_unlink(shm_path);
-            return err_desc;
-        }
+        if (pthread_mutex_unlock(&rlo->mutex))
+            goto error;
 
         if (add_to_rla(rlo) == -1) {
             close(open_res);
