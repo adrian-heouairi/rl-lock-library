@@ -444,11 +444,9 @@ static int seg_overlap(off_t s1, off_t l1, off_t s2, off_t l2) {
  * @param owner the owner to compare the lock owners with
  * @return 1 if the lock is owned by a different owner, 0 otherwise
  */
-static int has_different_owner(rl_lock lock, rl_owner owner) {
-    int i;
-    
-    for (i = 0; i < RL_MAX_OWNERS; i++) {
-        rl_owner other = lock.lock_owners[i];
+static int has_different_owner(const rl_lock *lock, rl_owner owner) {
+    for (int i = 0; i < RL_MAX_OWNERS; i++) {
+        rl_owner other = lock->lock_owners[i];
         if (!is_owner_free(&other)) {
             if (!equals(other, owner))
                 return 1;
@@ -489,6 +487,9 @@ static off_t get_starting_offset(struct flock *lck, int fd) {
 /**
  * @brief Checks if the given lock can be put on the given descriptor
  * 
+ * This function does not use any locking mechanism, so be sure to take the lock
+ * before entering this function in order to verify mutual exclusion.
+ *
  * @param lck the lock to put
  * @param lfd the file on which to put the lock
  * @return 1 if the lock is applicable, 0 if it is not, -1 if an error occured.
@@ -496,7 +497,7 @@ static off_t get_starting_offset(struct flock *lck, int fd) {
  * died and has not removed its locks, returns the pid of that process.
  */
 static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
-    if (lck == NULL)
+    if (lck == NULL || lfd.of == NULL)
         return -1;
 
     if (lck->l_type == F_UNLCK) /* unlock is always applicable */
@@ -506,14 +507,12 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
     if (start == -1)
         return -1;
 
-    if (lfd.of == NULL)
-        return -1;
     rl_open_file *open_file = lfd.of;
     int first = open_file->first;
     if (first == RL_NO_LOCKS)
         return 1;
 
-    for (int i = first; i != -1; ) {
+    for (int i = first; i != RL_NO_NEXT_LOCK; ) {
         rl_lock *cur = &open_file->lock_table[i];
 
         /* if locks overlap check for conflicts */
@@ -521,24 +520,21 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
             rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
 
             if ((cur->type == F_RDLCK && lck->l_type == F_WRLCK)
-                || cur->type == F_WRLCK) {
-                if (lck->l_type == F_WRLCK) {
-                    if (has_different_owner(*cur, lfd_owner)) {
-
-                        /* check if owner is still alive */
-                        for (int j = 0; j < cur->nb_owners; j++) {
-                            if (!equals(lfd_owner, cur->lock_owners[i])) {
-                                if (kill(cur->lock_owners[i].pid, 0) == -1) {
-                                    return cur->lock_owners[i].pid;
-                                } else {
-                                    return 0;
-                                }
+                || (cur->type == F_WRLCK && lck->l_type == F_WRLCK)) {
+                if (has_different_owner(cur, lfd_owner)) {
+                    /* check if owner is still alive */
+                    for (int j = 0; j < cur->nb_owners; j++) {
+                        if (!equals(lfd_owner, cur->lock_owners[i])) {
+                            if (kill(cur->lock_owners[j].pid, 0) == -1) {
+                                return cur->lock_owners[j].pid;
+                            } else {
+                                return 0;
                             }
                         }
-
-                        /* there is a different owner that has not been found */
-                        return -1;
                     }
+
+                    /* there is a different owner that has not been found */
+                    return -1;
                 }
             }
         }
