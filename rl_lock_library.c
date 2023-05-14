@@ -474,7 +474,7 @@ static off_t get_starting_offset(struct flock *lck, int fd) {
         else
             return -1; // before beginning of file !
     } else if (lck->l_whence == SEEK_CUR || lck->l_whence == SEEK_END) {
-        off_t cur = lseek(fd, 0, lck->l_whence);
+        off_t cur = lseek(fd, 0, SEEK_CUR);
         if (cur == -1)
             return -1;
         off_t pos = cur + lck->l_start;
