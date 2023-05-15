@@ -3,7 +3,15 @@
  * Guillermo MORON USON
  */
 
+#define _XOPEN_SOURCE 500
+
+#include <stdarg.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
 #include "rl_lock_library.h"
+
 #define RL_MAX_OWNERS 32
 #define RL_MAX_LOCKS 32
 #define RL_MAX_FILES 256
@@ -12,6 +20,7 @@
 #define RL_NO_NEXT_LOCK -1
 #define RL_FREE_LOCK -2
 #define RL_NO_LOCKS -2
+#define SHM_PREFIX "f"
 
 struct rl_owner {
     pid_t pid;
@@ -252,4 +261,131 @@ int rl_init_library() {
         rla.open_files[i] = RL_FREE_FILE;
     
     return 0;
+}
+
+/******************************************************************************/
+
+/**
+ * Adds rlo to rla. Fails if rla is full. Does not set errno on error.
+ * @return 0 on success, -1 on error
+ */
+static int add_to_rla(rl_open_file *rlo) {
+    if (rla.nb_files >= RL_MAX_FILES)
+        return -1;
+    rla.open_files[rla.nb_files] = rlo;
+    rla.nb_files++;
+    return 0;
+}
+
+/**
+ * Opens the file with the open() system call (identical parameters). Also does
+ * the memory projection of the rl_open_file associated with the file at path,
+ * creating the shared memory object if it doesn't exist. Returns the
+ * corresponding rl_descriptor.
+ * @param path the relative or absolute path to the file
+ * @param oflag the flags passed to open()
+ * @param ... the mode (permissions) for the new file, required if O_CREAT flag
+ *            is specified
+ * @return the rl_descriptor containing the file descriptor returned by open()
+ *         and a pointer to the rl_open_file associated to the file, or an
+ *         rl_descriptor containing fd -1 and rl_open_file pointer NULL on error
+ */
+rl_descriptor rl_open(const char *path, int oflag, ...) {
+    va_list va;
+    va_start(va, oflag);
+
+    rl_descriptor err_desc = {.fd = -1, .of = NULL};
+
+    if (rla.nb_files >= RL_MAX_FILES) {
+        errno = EMFILE;
+        return err_desc;
+    }
+    
+    int open_res;
+    if (oflag & O_CREAT)
+        open_res = open(path, oflag, va_arg(va, mode_t));
+    else
+        open_res = open(path, oflag);
+    if (open_res == -1)
+        return err_desc;
+    
+    struct stat st;
+    int fstat_res = fstat(open_res, &st);
+    if (fstat_res == -1) {
+        close(open_res);
+        return err_desc;
+    }
+
+    char shm_path[256];
+    int snprintf_res = snprintf(shm_path, 256, "/%s_%lu_%lu", SHM_PREFIX,
+        st.st_dev, st.st_ino);
+    if (snprintf_res < 0) {
+        close(open_res);
+        errno = ECANCELED;
+        return err_desc;
+    }
+
+    int shm_res = shm_open(shm_path, O_RDWR, 0);
+    rl_open_file *rlo = NULL;
+    // Problem: process 1 creates the shm and is paused before initializing it
+    // then process 2 comes here and the shm exists but is not initialized
+    if (shm_res >= 0) {
+        rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
+            MAP_SHARED, shm_res, 0);
+        if (rlo == MAP_FAILED) {
+            close(open_res);
+            close(shm_res);
+            return err_desc;
+        }
+    } else { // We create the shm
+        int shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
+            S_IRWXU | S_IRWXG | S_IRWXO);
+        if (shm_res2 == -1) {
+            close(open_res);
+            shm_unlink(shm_path);
+            return err_desc;
+        }
+        
+        int trunc_res = ftruncate(shm_res2, sizeof(rl_open_file));
+        if (trunc_res == -1) {
+            error:
+            close(open_res);
+            close(shm_res2);
+            shm_unlink(shm_path);
+            return err_desc;
+        }
+
+        rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
+            MAP_SHARED, shm_res2, 0);
+        if (rlo == MAP_FAILED)
+            goto error;
+
+        if (initialize_mutex(&rlo->mutex))
+            goto error;
+        if (initialize_cond(&rlo->cond)) 
+            goto error;
+        if (pthread_mutex_lock(&rlo->mutex)) 
+            goto error;
+
+        rlo->first = RL_NO_LOCKS;
+        for (int i = 0; i < RL_MAX_LOCKS; i++) {
+            rlo->lock_table[i].next_lock = RL_FREE_LOCK;
+            for (int j = 0; j < RL_MAX_OWNERS; j++)
+                erase_owner(&rlo->lock_table[i].lock_owners[j]);
+        }
+
+        if (pthread_mutex_unlock(&rlo->mutex))
+            goto error;
+
+        if (add_to_rla(rlo) == -1) {
+            close(open_res);
+            close(shm_res2);
+            return err_desc;
+        }
+    }
+
+    va_end(va);
+
+    rl_descriptor desc = {.fd = open_res, .of = rlo};
+    return desc;
 }
