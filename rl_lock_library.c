@@ -17,9 +17,7 @@
 #define RL_MAX_FILES 256
 #define RL_FREE_OWNER -1
 #define RL_FREE_FILE NULL
-#define RL_NO_NEXT_LOCK -1
 #define RL_FREE_LOCK -2
-#define RL_NO_LOCKS -2
 #define SHM_PREFIX "f"
 
 struct rl_owner {
@@ -28,7 +26,6 @@ struct rl_owner {
 };
 
 struct rl_lock {
-    int next_lock;
     off_t starting_offset;
     off_t len;
     short type; /* F_RDLCK, F_WRLCK */
@@ -37,15 +34,14 @@ struct rl_lock {
 };
 
 struct rl_open_file {
-    int first;
+    int nb_locks;
     pthread_mutex_t mutex;
-    pthread_cond_t cond;
     rl_lock lock_table[RL_MAX_LOCKS];
 };
 
 struct rl_descriptor {
     int fd;
-    rl_open_file *of;
+    rl_open_file *file;
 };
 
 struct rl_all_files {
@@ -80,22 +76,6 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
     return pthread_mutex_init(pmutex, &mutexattr);
 }
 
-/*
- * Initializes pcond for process synchronization.
- */
-static int initialize_cond(pthread_cond_t *pcond) {
-    pthread_condattr_t condattr;
-    int code;
-
-    code = pthread_condattr_init(&condattr);
-    if(code != 0)
-        return code;
-    code = pthread_condattr_setpshared(&condattr, PTHREAD_PROCESS_SHARED);
-    if (code != 0)
-        return code;
-    return pthread_cond_init(pcond, &condattr);
-}
-
 /******************************************************************************/
 
 /*
@@ -103,7 +83,7 @@ static int initialize_cond(pthread_cond_t *pcond) {
  * RL_FREE_OWNER.
  */
 static int is_owner_free(rl_owner *owner) {
-    return owner->fd == RL_FREE_OWNER;
+    return owner != NULL && owner->fd == RL_FREE_OWNER;
 }
 
 /*
@@ -116,8 +96,6 @@ static void erase_owner(rl_owner *owner) {
     }
 }
 
-/******************************************************************************/
-
 /*
  * If lock is not NULL, moves the owners in lock->lock_owners in order to fit in
  * the lock->nb_owners first cells. If lock->nb_owners is strictly inferior to
@@ -129,13 +107,12 @@ static void erase_owner(rl_owner *owner) {
  * 0.
  */
 static int organize_owners(rl_lock *lock) {
-    int i, j;
-
     if (lock == NULL || lock->nb_owners < 0 || lock->nb_owners > RL_MAX_OWNERS)
         return -1;
-    for (i = 0; i < lock->nb_owners; i++) {
+
+    for (int i = 0; i < lock->nb_owners; i++) {
         if (is_owner_free(&lock->lock_owners[i])) {
-            j = i + 1;
+            int j = i + 1;
             while (j < RL_MAX_OWNERS && is_owner_free(&lock->lock_owners[j]))
                 j++;
             if (j >= RL_MAX_OWNERS)
@@ -156,95 +133,104 @@ static int equals(rl_owner o1, rl_owner o2) {
 
 /******************************************************************************/
 
-/*
- * Returns 1 if lock is the last lock, that is if lock is not NULL and
- * lock->next_lock == RL_NO_NEXT_LOCK.
+/**
+ * @brief Erases `lck` if possible
+ * @param lck the lock to erase
  */
-static int is_last(rl_lock *lock) {
-    return lock != NULL && lock->next_lock == RL_NO_NEXT_LOCK;
+static void erase_lock(rl_lock *lck) {
+    if (lck != NULL)
+        lck->starting_offset = RL_FREE_LOCK;
 }
 
-/*
- * rl_close() closes lfd.fd with close() and deletes all the locks associated to
- * that file descriptor and the calling process by erasing the corresponding
- * owner from the lock owners table of each concerned lock. If the corresponding
- * owner is the last remaining owner of a lock, the lock is also removed from
- * the lock table of the open file. If the call to close() on lfd.fd fails,
- * returns -1, thus leaving the lock table unmodified. If 
+/**
+ * @brief Checks if `lck` is free
+ * @param lck the lock to check
+ * @return 1 if `lck` is free, 0 otherwise
+ */
+static int is_lock_free(rl_lock *lck) {
+    return lck != NULL && lck->starting_offset >= 0;
+}
+
+/**
+ * @brief Moves the locks of `file` in order to fit in the first
+ * `file->nb_locks` cells of `file` lock table
+ *
+ * This function does not use any locking mechanism, so be sure to have an
+ * exclusive lock on the structure before organizing its lock in order to
+ * preserve data integrity.
+ *
+ * @param file the file that contains the locks to organize
+ * @return 0 if the locks were successfully organized, -1 on error
+ */
+static int organize_locks(rl_open_file *file) {
+    if (file == NULL || file->nb_locks < 0 || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+
+    for (int i = 0; i < file->nb_locks; i++) {
+        if (is_lock_free(&file->lock_table[i])) {
+            int j = i + 1;
+            while (j < RL_MAX_LOCKS && is_lock_free(&file->lock_table[j]))
+                j++;
+            if (j >= RL_MAX_LOCKS)
+                return -1;
+            file->lock_table[i] = file->lock_table[j];
+            erase_lock(&file->lock_table[j]);
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Closes the given locked file descriptor
+ *
+ * This function removes from each lock of the descripted open file the owner
+ * `{getpid(), lfd.fd}` if present. After deletion, the lock owners of each lock
+ * are reorganized, as each lock of the lock table of the open file description.
+ * The `close()` operation is made only if the previous operations are
+ * successful.
+ *
+ * @param lfd the locked file descriptor to close
+ * @return 0 if `lfd` was successfully closed, -1 on error
  */
 int rl_close(rl_descriptor lfd) {
-    rl_owner lfd_owner;
-    rl_open_file *of;
-    rl_lock *cur, *prev;
-    int i, lock_owners_count, err;
-
-    if (close(lfd.fd) == -1) {
-        perror("close()");
+    /* check descriptor validity */
+    if (lfd.fd < 0 || lfd.file == NULL)
         return -1;
-    }
 
-    lfd_owner = (rl_owner) {.pid = getpid(), .fd = lfd.fd};
-    of = lfd.of;
-    err = pthread_mutex_lock(&of->mutex);
-    if (err != 0) {
-        fprintf(stderr, "%s\n", strerror(err));
+    /* take lock on open file */
+    int err = pthread_mutex_lock(&lfd.file->mutex);
+    if (err != 0)
         return -1;
-    }
 
-    if (of->first == RL_NO_LOCKS) /* nothing to do */
-        return 0;
-
-    cur = &of->lock_table[of->first];
-    prev = cur;
-    while (1) {
-        /* count owners after erase of lfd_owner */
-        lock_owners_count = 0;
-        for (i = 0; i < cur->nb_owners; i++) {
-            if (equals(cur->lock_owners[i], lfd_owner))
-                erase_owner(&cur->lock_owners[i]);
-            else
-                lock_owners_count++;
-        }
-        
-        /* organize owners to fit in nb_owners first cells */
-        if (lock_owners_count != 0) {
-            cur->nb_owners = lock_owners_count;
-            organize_owners(cur);
-        }
-
-        if (is_last(cur)) {
-            if (lock_owners_count == 0) {
-                prev->next_lock = RL_NO_NEXT_LOCK;
-                cur->next_lock = RL_FREE_LOCK;
-                if (cur == prev) /* cur is last and first */
-                    of->first = RL_NO_LOCKS;
-            }
-            break;
-        } else {
-            if (lock_owners_count == 0) {
-                /* cur is first and has next, next becomes new first */
-                if (cur == &of->lock_table[of->first]){
-                    of->first = cur->next_lock;
-                    cur = &of->lock_table[of->first];
-                    prev->next_lock = RL_FREE_LOCK;
-                    prev = cur;
-                } else { /* cur is neither first nor last */
-                    prev->next_lock = cur->next_lock;
-                    cur->next_lock = RL_FREE_LOCK;
-                    cur = &of->lock_table[prev->next_lock];
-                }
-            } else {
-                prev = cur;
-                cur = &of->lock_table[prev->next_lock];
+    rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+    int nb_locks = lfd.file->nb_locks;
+    for (int i = 0; i < nb_locks; i++) {
+        int nb_owners = lfd.file->lock_table[i].nb_owners;
+        for (int j = 0; j < nb_owners; j++) {
+            if (equals(lfd_owner, lfd.file->lock_table[i].lock_owners[j])) {
+                erase_owner(&lfd.file->lock_table[i].lock_owners[j]);
+                nb_owners--;
             }
         }
+        lfd.file->lock_table[i].nb_owners = nb_owners;
+        if (organize_owners(&lfd.file->lock_table[i]) == -1)
+            return -1;
+        if (lfd.file->lock_table[i].nb_owners == 0) {
+            erase_lock(&lfd.file->lock_table[i]);
+            nb_locks--;
+        }
     }
 
-    err = pthread_mutex_unlock(&of->mutex);
-    if (err != 0) {
-        fprintf(stderr, "%s\n", strerror(err));
+    lfd.file->nb_locks = nb_locks;
+    if (organize_locks(lfd.file) == -1)
         return -1;
-    }
+
+    if (close(lfd.fd) == -1)
+        return -1;
+
+    err = pthread_mutex_unlock(&lfd.file->mutex);
+    if (err != 0)
+        return -1;
     return 0;
 }
 
@@ -294,7 +280,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
     va_list va;
     va_start(va, oflag);
 
-    rl_descriptor err_desc = {.fd = -1, .of = NULL};
+    rl_descriptor err_desc = {.fd = -1, .file = NULL};
 
     if (rla.nb_files >= RL_MAX_FILES) {
         errno = EMFILE;
@@ -362,14 +348,12 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
         if (initialize_mutex(&rlo->mutex))
             goto error;
-        if (initialize_cond(&rlo->cond)) 
-            goto error;
         if (pthread_mutex_lock(&rlo->mutex)) 
             goto error;
 
-        rlo->first = RL_NO_LOCKS;
+        rlo->nb_locks = 0;
         for (int i = 0; i < RL_MAX_LOCKS; i++) {
-            rlo->lock_table[i].next_lock = RL_FREE_LOCK;
+            rlo->lock_table[i].starting_offset = RL_FREE_LOCK;
             for (int j = 0; j < RL_MAX_OWNERS; j++)
                 erase_owner(&rlo->lock_table[i].lock_owners[j]);
         }
@@ -386,6 +370,6 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
     va_end(va);
 
-    rl_descriptor desc = {.fd = open_res, .of = rlo};
+    rl_descriptor desc = {.fd = open_res, .file = rlo};
     return desc;
 }
