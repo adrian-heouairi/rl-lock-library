@@ -20,33 +20,50 @@
 #define RL_FREE_LOCK -2
 #define SHM_PREFIX "f"
 
+/**
+ * @brief The owner of a locked segment
+ */
 struct rl_owner {
-    pid_t pid;
-    int fd;
+    pid_t pid; /**< The PID of the process that locked a segment */
+    int fd; /**< The file descriptor of the locked file */
 };
 
+/**
+ * @brief The locked segment of a file
+ */
 struct rl_lock {
-    off_t starting_offset;
-    off_t len;
-    short type; /* F_RDLCK, F_WRLCK */
-    size_t nb_owners;
-    rl_owner lock_owners[RL_MAX_OWNERS];
+    off_t starting_offset; /**< The beginning of the segment */
+    off_t len; /**< The length of the segment */
+    short type; /**< The type (F_RDLCK, F_WRLCK) of the lock */
+    size_t nb_owners; /**< The number of owners of the lock */
+    rl_owner lock_owners[RL_MAX_OWNERS]; /**< The owners of the lock */
 };
 
+/**
+ * @brief The locks on an open file description
+ */
 struct rl_open_file {
-    int nb_locks;
-    pthread_mutex_t mutex;
-    rl_lock lock_table[RL_MAX_LOCKS];
+    int nb_locks; /**< The number of locks */
+    pthread_mutex_t mutex; /**< The exclusive lock on the open file */
+    rl_lock lock_table[RL_MAX_LOCKS]; /**< The locks on the open file */
 };
 
+/**
+ * @brief The open file description
+ */
 struct rl_descriptor {
     int fd;
     rl_open_file *file;
+    int fd; /**< The open file descriptor as in the descriptor table */
+    rl_open_file *of; /**< The locks associated to the open file description */
 };
 
+/**
+ * @brief All the open file descriptions used by this process
+ */
 struct rl_all_files {
-    int nb_files;
-    rl_open_file *open_files[RL_MAX_FILES];
+    int nb_files; /**< The number of open file descriptions */
+    rl_open_file *open_files[RL_MAX_FILES]; /**< The open file descriptions */
 };
 
 /******************************************************************************/
