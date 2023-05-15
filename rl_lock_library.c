@@ -519,11 +519,11 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
             rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
 
             if ((cur->type == F_RDLCK && lck->l_type == F_WRLCK)
-                || (cur->type == F_WRLCK && lck->l_type == F_WRLCK)) {
+                || cur->type == F_WRLCK) {
                 if (has_different_owner(cur, lfd_owner)) {
                     /* check if owner is still alive */
                     for (int j = 0; j < cur->nb_owners; j++) {
-                        if (!equals(lfd_owner, cur->lock_owners[i])) {
+                        if (!equals(lfd_owner, cur->lock_owners[j])) {
                             if (kill(cur->lock_owners[j].pid, 0) == -1) {
                                 return cur->lock_owners[j].pid;
                             } else {
