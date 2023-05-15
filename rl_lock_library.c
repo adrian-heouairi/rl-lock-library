@@ -543,6 +543,15 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
 }
 
 /**
+ * @brief Removes the locks owned by the process of given PID in the given
+ * rl_open_file
+ * @param pid the PID of the 
+ */
+static int remove_locks_of(pid_t pid, rl_open_file *file) {
+    return -1;
+}
+
+/**
  * @brief 
  * 
  * @param lfd 
