@@ -21,6 +21,13 @@
 #define SHM_PREFIX "f"
 
 /**
+ * @brief All the file descriptions opened by this process
+ */
+static rl_all_files rla;
+
+/******************************************************************************/
+
+/**
  * @brief The owner of a locked segment
  */
 struct rl_owner {
@@ -52,14 +59,12 @@ struct rl_open_file {
  * @brief The open file description
  */
 struct rl_descriptor {
-    int fd;
-    rl_open_file *file;
     int fd; /**< The open file descriptor as in the descriptor table */
-    rl_open_file *of; /**< The locks associated to the open file description */
+    rl_open_file *file; /**< The locks associated to the open file description */
 };
 
 /**
- * @brief All the open file descriptions used by this process
+ * @brief All the open file descriptions of a process
  */
 struct rl_all_files {
     int nb_files; /**< The number of open file descriptions */
@@ -69,16 +74,9 @@ struct rl_all_files {
 /******************************************************************************/
 
 /**
- * The rla.nb_files first cells of the rla.open_files array contain pointers to
- * the rl_open_file corresponding to all files that have been open with rl_open
- * by this process.
- */
-static rl_all_files rla;
-
-/******************************************************************************/
-
-/*
- * Initializes pmutex for process synchronization.
+ * @brief Initializes `pmutex` for process sync
+ * @param pmutex the mutex to initialize
+ * @return 0 if the initialization was successfull, the error code otherwise
  */
 static int initialize_mutex(pthread_mutex_t *pmutex) {
     pthread_mutexattr_t mutexattr;
@@ -95,16 +93,18 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
 
 /******************************************************************************/
 
-/*
- * Returns 1 if owner is free, 0 otherwise. An owner is free if owner->fd equals
- * RL_FREE_OWNER.
+/**
+ * @brief Checks if `owner` is free
+ * @param owner the owner to check
+ * @return 1 if it is free, 0 otherwise
  */
 static int is_owner_free(rl_owner *owner) {
     return owner != NULL && owner->fd == RL_FREE_OWNER;
 }
 
-/*
- * Erases the given owner. If owner is NULL, does nothing.
+/**
+ * @brief Erases `owner` if possible
+ * @param owner the owner to erase
  */
 static void erase_owner(rl_owner *owner) {
     if (owner != NULL) {
@@ -113,36 +113,41 @@ static void erase_owner(rl_owner *owner) {
     }
 }
 
-/*
- * If lock is not NULL, moves the owners in lock->lock_owners in order to fit in
- * the lock->nb_owners first cells. If lock->nb_owners is strictly inferior to
- * 0 or strictly superior to RL_MAX_OWNERS, or lock is NULL, returns -1.
- * If lock->nb_owners is superior to the real number of owners, returns -1. If
- * lock->nb_owners is less then the real number of owners (but superior to 0),
- * only the first lock->nb_owners owners will move in order to fit the first
- * cells, leaving the rest unchanged. On success and in the latter case, returns
- * 0.
+/**
+ * @brief Moves the owners of `lck` in order to fit in the first
+ * `lck->nb_owners` cells of `lck` owner table
+ *
+ * This function does not use any locking mechanism, so be sure to have an
+ * exclusive lock on the structure before organizing its owners in order to
+ * preserve data integrity.
+ *
+ * @param lck the lck that contains the owners to organize
+ * @return 0 if the owners were successfully organized, -1 on error
  */
-static int organize_owners(rl_lock *lock) {
-    if (lock == NULL || lock->nb_owners < 0 || lock->nb_owners > RL_MAX_OWNERS)
+static int organize_owners(rl_lock *lck) {
+    if (lck == NULL || lck->nb_owners < 0 || lck->nb_owners > RL_MAX_OWNERS)
         return -1;
 
-    for (int i = 0; i < lock->nb_owners; i++) {
-        if (is_owner_free(&lock->lock_owners[i])) {
+    for (int i = 0; i < lck->nb_owners; i++) {
+        if (is_owner_free(&lck->lock_owners[i])) {
             int j = i + 1;
-            while (j < RL_MAX_OWNERS && is_owner_free(&lock->lock_owners[j]))
+            while (j < RL_MAX_OWNERS && is_owner_free(&lck->lock_owners[j]))
                 j++;
             if (j >= RL_MAX_OWNERS)
                 return -1;
-            lock->lock_owners[i] = lock->lock_owners[j];
-            erase_owner(&lock->lock_owners[j]);
+            lck->lock_owners[i] = lck->lock_owners[j];
+            erase_owner(&lck->lock_owners[j]);
         }
     }
     return 0;
 }
 
-/*
- * Returns 1 if o1.pid == o2.pid && o1.fd == o2.fd, 0 otherwise.
+/**
+ * @brief Checks if the owners are equal
+ * @param o1 the first owner
+ * @param o2 the second owner
+ * @return 1 if they are equal, that is if o1.pid == o2.pid && o1.fd == o2.fd,
+ * 0 otherwise
  */
 static int equals(rl_owner o1, rl_owner o2) {
     return o1.pid == o2.pid && o1.fd == o2.fd;
@@ -254,22 +259,27 @@ int rl_close(rl_descriptor lfd) {
 /******************************************************************************/
 
 /**
- * Initializes rla, the static global variable recording all open files. You
- * must call this function before using the rl library.
+ * @brief Initializes the library
+ * 
+ * You must call this function before using the library.
+ *
  * @return always 0
  */
 int rl_init_library() {
     rla.nb_files = 0;
     for (int i = 0; i < RL_MAX_FILES; i++)
         rla.open_files[i] = RL_FREE_FILE;
-    
     return 0;
 }
 
 /******************************************************************************/
 
 /**
- * Adds rlo to rla. Fails if rla is full. Does not set errno on error.
+ * @brief Adds the given open file to the open file descriptions of this process
+ *
+ * Fails if rla is full.
+ *
+ * @parm rlo the open file to add
  * @return 0 on success, -1 on error
  */
 static int add_to_rla(rl_open_file *rlo) {
@@ -281,12 +291,15 @@ static int add_to_rla(rl_open_file *rlo) {
 }
 
 /**
- * Opens the file with the open() system call (identical parameters). Also does
- * the memory projection of the rl_open_file associated with the file at path,
+ * @brief Opens the file at the given path
+ *
+ * Opens `path` with the open() system call (identical parameters). Also does
+ * the memory projection of the `rl_open_file` associated with the file at path,
  * creating the shared memory object if it doesn't exist. Returns the
- * corresponding rl_descriptor.
+ * corresponding `rl_descriptor`.
+ *
  * @param path the relative or absolute path to the file
- * @param oflag the flags passed to open()
+ * @param oflag the flags passed to `open()`
  * @param ... the mode (permissions) for the new file, required if O_CREAT flag
  *            is specified
  * @return the rl_descriptor containing the file descriptor returned by open()
