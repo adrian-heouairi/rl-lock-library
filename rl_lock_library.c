@@ -4,14 +4,12 @@
  */
 
 #define _XOPEN_SOURCE 500
+#define _POSIX_C_SOURCE 200112L
 
 #include <stdarg.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
-
-#define _POSIX_C_SOURCE 200112L
-
 #include <sys/file.h>
 #include <sys/types.h>
 #include <pthread.h>
@@ -472,14 +470,15 @@ static off_t get_starting_offset(struct flock *lck, int fd) {
         else
             return -1; // before beginning of file !
     } else if (lck->l_whence == SEEK_CUR || lck->l_whence == SEEK_END) {
-        off_t cur = lseek(fd, 0, SEEK_CUR);
+        off_t cur = lseek(fd, 0, SEEK_CUR); // current offset
         if (cur == -1)
             return -1;
-        off_t pos = cur + lck->l_start;
-        if (pos >= 0)
-            return pos;
-        else
+        off_t pos = lseek(fd, lck->l_start, lck->l_whence); // lock offset
+        if (pos == -1)
             return -1;
+        if (lseek(fd, cur, SEEK_SET) == -1)
+            return -1;
+        return pos;
     }
     return -1;
 }
