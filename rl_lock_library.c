@@ -307,9 +307,6 @@ static int add_to_rla(rl_open_file *rlo) {
  *         rl_descriptor containing fd -1 and rl_open_file pointer NULL on error
  */
 rl_descriptor rl_open(const char *path, int oflag, ...) {
-    va_list va;
-    va_start(va, oflag);
-
     rl_descriptor err_desc = {.fd = -1, .file = NULL};
 
     if (rla.nb_files >= RL_MAX_FILES) {
@@ -317,11 +314,17 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         return err_desc;
     }
     
+    va_list va;
+    va_start(va, oflag);
+
     int open_res;
     if (oflag & O_CREAT)
         open_res = open(path, oflag, va_arg(va, mode_t));
     else
         open_res = open(path, oflag);
+
+    va_end(va);
+
     if (open_res == -1)
         return err_desc;
     
@@ -397,8 +400,6 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
             return err_desc;
         }
     }
-
-    va_end(va);
 
     rl_descriptor desc = {.fd = open_res, .file = rlo};
     return desc;
