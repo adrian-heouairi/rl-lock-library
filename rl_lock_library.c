@@ -415,7 +415,6 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
 /**
  * @brief Checks if the segment [s1, s1 + l1[ and [s2, s2 + l2[ overlap
- * 
  * @param s1 the start of the first segment
  * @param l1 the length of the first segment
  * @param s2 the start of the second segment
@@ -455,7 +454,6 @@ static int has_different_owner(const rl_lock *lock, rl_owner owner) {
 
 /**
  * @brief Computes the starting offset of the lock of the file denoted by fd.
- * 
  * @param lck a lock on a region
  * @param fd the file descriptor of the file to lock
  * @return the starting offset of the region or -1 if it could not be determined
@@ -496,7 +494,7 @@ static off_t get_starting_offset(struct flock *lck, int fd) {
  * died and has not removed its locks, returns the pid of that process.
  */
 static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
-    if (lck == NULL || lfd.of == NULL)
+    if (lck == NULL || lfd.file == NULL)
         return -1;
 
     if (lck->l_type == F_UNLCK) /* unlock is always applicable */
@@ -506,7 +504,7 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
     if (start == -1)
         return -1;
 
-    rl_open_file *open_file = lfd.of;
+    rl_open_file *open_file = lfd.file;
     int first = open_file->first;
     if (first == RL_NO_LOCKS)
         return 1;
@@ -545,10 +543,43 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
 /**
  * @brief Removes the locks owned by the process of given PID in the given
  * rl_open_file
- * @param pid the PID of the 
+ *
+ * This function does not use any locking mechanism, be sure that mutual
+ * exclusion is assured before using it. If after removal a lock is empty, it is
+ * also deleted. The owners of every modified lock are reorganized, so as the
+ * locks of the file.
+ *
+ * @param pid the PID of the process that owns the locks to remove
+ * @param file the file that contains the locks to remove
+ * @return 0 on success, -1 on error
  */
 static int remove_locks_of(pid_t pid, rl_open_file *file) {
-    return -1;
+    if (pid <= 0 || file == NULL || file->nb_locks < 0
+        || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+
+    int locks_count = file->nb_locks;
+    for (int i = 0; i < file->nb_locks; i++) {
+        int owners_count = file->lock_table[i].nb_owners;
+        for (int j = 0; j < file->lock_table[i].nb_owners; j++) {
+            rl_owner *cur = &file->lock_table[i].lock_owners[j];
+            if (cur->pid == pid) {
+                erase_owner(cur);
+                owners_count--;
+            }
+        }
+        file->lock_table[i].nb_owners = owners_count;
+        if (organize_owners(&file->lock_table[i]) < 0)
+            return -1;
+        if (owners_count == 0) {
+            erase_lock(&file->lock_table[i]);
+            locks_count--;
+        }
+    }
+    file->nb_locks = locks_count;
+    if (organize_locks(file) < 0)
+        return -1;
+    return 0;
 }
 
 /**
