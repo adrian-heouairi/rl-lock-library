@@ -528,8 +528,11 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
     if (lck == NULL || lfd.file == NULL)
         return -1;
 
-    if (lck->l_type == F_UNLCK) /* unlock is always applicable */
+    if (lck->l_type == F_UNLCK) {
+        if (lck->l_start < 0)
+            return -1;
         return 1;
+    }
 
     off_t start = get_starting_offset(lck, lfd.fd);
     if (start == -1)
