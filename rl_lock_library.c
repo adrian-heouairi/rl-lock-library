@@ -99,8 +99,6 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
     return pthread_mutex_init(pmutex, &mutexattr);
 }
 
-/******************************************************************************/
-
 /**
  * @brief Checks if `owner` is free
  * @param owner the owner to check
@@ -210,6 +208,56 @@ static int organize_locks(rl_open_file *file) {
     return 0;
 }
 
+/******************************************************************************/
+
+/**
+ * @brief Deletes every owner that matches the given criteria in the given file
+ *
+ * This function does not use any locking mechanism. If `crit` returns a value
+ * > 0, the owner given as first parameter of the function is erased from the
+ * lock owners table of the currently considered lock of the file. If `crit`
+ * returns 0, nothing is done. If it returns -1, the function quits on error.
+ * After each removal, the owners in the lock owner table are reorganized, so as
+ * the locks if there are no owners left.
+ *
+ * @param file the file that contains the lock owners to remove
+ * @param crit a function that take two lock owners and returns an integer
+ * @param owner_crit the owner used as second parameter of `crit`
+ * @return 0 if the owner removal was succesful, -1 on error.
+ */
+static int delete_owner_on_criteria(rl_open_file *file,
+                                    int (*crit)(rl_owner, rl_owner),
+                                    rl_owner owner_crit) {
+    if (crit == NULL || file == NULL || file->nb_locks < 0
+        || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+
+    int locks_count = file->nb_locks;
+    for (int i = 0; i < file->nb_locks; i++) {
+        int owners_count = file->lock_table[i].nb_owners;
+        for (int j = 0; j < file->lock_table[i].nb_owners; j++) {
+            rl_owner *cur = &file->lock_table[i].lock_owners[j];
+            if (crit(*cur, owner_crit)) {
+                erase_owner(cur);
+                owners_count--;
+            }
+        }
+        file->lock_table[i].nb_owners = owners_count;
+        if (organize_owners(&file->lock_table[i]) < 0)
+            return -1;
+        if (owners_count == 0) {
+            erase_lock(&file->lock_table[i]);
+            locks_count--;
+        }
+    }
+    file->nb_locks = locks_count;
+    if (organize_locks(file) < 0)
+        return -1;
+    return 0;
+}
+
+/******************************************************************************/
+
 /**
  * @brief Closes the given locked file descriptor
  *
@@ -233,26 +281,7 @@ int rl_close(rl_descriptor lfd) {
         return -1;
 
     rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
-    int nb_locks = lfd.file->nb_locks;
-    for (int i = 0; i < lfd.file->nb_locks; i++) {
-        int nb_owners = lfd.file->lock_table[i].nb_owners;
-        for (int j = 0; j < lfd.file->lock_table[i].nb_owners; j++) {
-            if (equals(lfd_owner, lfd.file->lock_table[i].lock_owners[j])) {
-                erase_owner(&lfd.file->lock_table[i].lock_owners[j]);
-                nb_owners--;
-            }
-        }
-        lfd.file->lock_table[i].nb_owners = nb_owners;
-        if (organize_owners(&lfd.file->lock_table[i]) == -1)
-            return -1;
-        if (lfd.file->lock_table[i].nb_owners == 0) {
-            erase_lock(&lfd.file->lock_table[i]);
-            nb_locks--;
-        }
-    }
-
-    lfd.file->nb_locks = nb_locks;
-    if (organize_locks(lfd.file) == -1)
+    if (delete_owner_on_criteria(lfd.file, equals, lfd_owner) < 0)
         return -1;
 
     if (close(lfd.fd) == -1)
@@ -538,6 +567,16 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
 }
 
 /**
+ * @brief Checks if `ol` and `or` have the same PID
+ * @param ol the left owner
+ * @param or the right owner
+ * @return 1 if `ol` and `or` have the same PID, 0 otherwise
+ */
+static int same_pid(rl_owner ol, rl_owner or) {
+    return ol.pid == or.pid;
+}
+
+/**
  * @brief Removes the locks owned by the process of given PID in the given
  * rl_open_file
  *
@@ -555,26 +594,8 @@ static int remove_locks_of(pid_t pid, rl_open_file *file) {
         || file->nb_locks > RL_MAX_LOCKS)
         return -1;
 
-    int locks_count = file->nb_locks;
-    for (int i = 0; i < file->nb_locks; i++) {
-        int owners_count = file->lock_table[i].nb_owners;
-        for (int j = 0; j < file->lock_table[i].nb_owners; j++) {
-            rl_owner *cur = &file->lock_table[i].lock_owners[j];
-            if (cur->pid == pid) {
-                erase_owner(cur);
-                owners_count--;
-            }
-        }
-        file->lock_table[i].nb_owners = owners_count;
-        if (organize_owners(&file->lock_table[i]) < 0)
-            return -1;
-        if (owners_count == 0) {
-            erase_lock(&file->lock_table[i]);
-            locks_count--;
-        }
-    }
-    file->nb_locks = locks_count;
-    if (organize_locks(file) < 0)
+    rl_owner cmp = {.pid = pid, .fd = 0};
+    if (delete_owner_on_criteria(file, same_pid, cmp) < 0)
         return -1;
     return 0;
 }
