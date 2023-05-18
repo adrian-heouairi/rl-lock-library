@@ -47,7 +47,7 @@ struct rl_owner {
  * @brief The locked segment of a file
  */
 struct rl_lock {
-    off_t starting_offset; /**< The beginning of the segment */
+    off_t start; /**< The beginning of the segment */
     off_t len; /**< The length of the segment */
     short type; /**< The type (F_RDLCK, F_WRLCK) of the lock */
     size_t nb_owners; /**< The number of owners of the lock */
@@ -167,7 +167,7 @@ static int equals(rl_owner o1, rl_owner o2) {
  */
 static void erase_lock(rl_lock *lck) {
     if (lck != NULL)
-        lck->starting_offset = RL_FREE_LOCK;
+        lck->start = RL_FREE_LOCK;
 }
 
 /**
@@ -176,7 +176,7 @@ static void erase_lock(rl_lock *lck) {
  * @return 1 if `lck` is free, 0 otherwise
  */
 static int is_lock_free(rl_lock *lck) {
-    return lck != NULL && lck->starting_offset == RL_FREE_LOCK;
+    return lck != NULL && lck->start == RL_FREE_LOCK;
 }
 
 /**
@@ -489,7 +489,7 @@ static int has_different_owner(const rl_lock *lock, rl_owner owner) {
  * @param fd the file descriptor of the file to lock
  * @return the starting offset of the region or -1 if it could not be determined
  */
-static off_t get_starting_offset(struct flock *lck, int fd) {
+static off_t get_start(struct flock *lck, int fd) {
     if (lck == NULL)
         return -1;
 
@@ -534,7 +534,7 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
         return 1;
     }
 
-    off_t start = get_starting_offset(lck, lfd.fd);
+    off_t start = get_start(lck, lfd.fd);
     if (start == -1)
         return -1;
 
@@ -545,7 +545,7 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
         rl_lock *cur = &file->lock_table[i];
 
         /* if locks overlap check for conflicts */
-        if (seg_overlap(cur->starting_offset, cur->len, start, lck->l_len)) {
+        if (seg_overlap(cur->start, cur->len, start, lck->l_len)) {
             rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
 
             if ((cur->type == F_RDLCK && lck->l_type == F_WRLCK)
