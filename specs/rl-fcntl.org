@@ -37,15 +37,15 @@
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
 
-    Ajout de 2 nouveaux verrous: 
-    nb_new_locks += 2;
     v1.type = cur.type;
     v1.start = cur.start;
     v1.len = lck.l_start - cur.start
+    Incrémenter nb_new_locks
 
     v2.type = cur.type;
     v2.start = lck.l_start + lck.l_len
     v2.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
+    Incrémenter nb_new_locks
 ** C2: unlock tout cur
    <=> cur.start >= lck.l_start & cur.len <= lck.l_len
 *** Conséquences
@@ -58,20 +58,18 @@
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
     
-    Ajout de 1 nouveau verrou:
-    nb_new_locks++;
     v1.type = cur.type;
     v1.start = cur.start;
     v1.len = lck.start - cur.start;
+    Incrémenter nb_new_locks
 ** C4: unlock le début de la zone de cur
    <=> lck.l_start < cur.start & (cur.start + cur.len >= lck.l_start)
 *** Conséquences
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
 
-    Ajout de 1 nouveau verrou:
-    nb_new_locks++;
     v1.type = cur.type;
     v1.start = lck.l_start + lck.l_len
     v1.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
+    Incrémenter nb_new_locks
 * Application read/write lock
