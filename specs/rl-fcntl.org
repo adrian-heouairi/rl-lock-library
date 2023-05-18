@@ -32,7 +32,7 @@
   end
 
 ** C1: unlock au milieu de  cur
-   <=> cur.start < lck.l_start & cur.len > lck.l_len
+   <=> cur.start < lck.l_start & (cur.start + cur.len > lck.l_start + lck.l_len)
 *** Conséquences
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
