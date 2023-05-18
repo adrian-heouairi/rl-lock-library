@@ -237,10 +237,12 @@ static int delete_owner_on_criteria(rl_open_file *file,
         int owners_count = file->lock_table[i].nb_owners;
         for (int j = 0; j < file->lock_table[i].nb_owners; j++) {
             rl_owner *cur = &file->lock_table[i].lock_owners[j];
-            if (crit(*cur, owner_crit)) {
+            int res = crit(*cur, owner_crit);
+            if (res > 0) {
                 erase_owner(cur);
                 owners_count--;
-            }
+            } else if (res == -1)
+                return -1;
         }
         file->lock_table[i].nb_owners = owners_count;
         if (organize_owners(&file->lock_table[i]) < 0)
