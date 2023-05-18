@@ -504,13 +504,11 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
     if (start == -1)
         return -1;
 
-    rl_open_file *open_file = lfd.file;
-    int first = open_file->first;
-    if (first == RL_NO_LOCKS)
-        return 1;
-
-    for (int i = first; i != RL_NO_NEXT_LOCK; ) {
-        rl_lock *cur = &open_file->lock_table[i];
+    rl_open_file *file = lfd.file;
+    if (file->nb_locks < 0 || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+    for (int i = 0; i < file->nb_locks; i++) {
+        rl_lock *cur = &file->lock_table[i];
 
         /* if locks overlap check for conflicts */
         if (seg_overlap(cur->starting_offset, cur->len, start, lck->l_len)) {
@@ -535,7 +533,6 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
                 }
             }
         }
-        i = open_file->lock_table[i].next_lock;
     }
     return 1;
 }
