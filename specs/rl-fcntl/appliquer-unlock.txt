@@ -1,0 +1,11 @@
+[Application unlock]
+
+struct flock lck: verrou à poser (de type F_UNLCK)
+rl_lock cur: verrou courant lors du parcours de la table de locks
+
+on suppose les verrous de longueur finie
+
+Cas 1: zone à unlock est entièrement recouverte par cur
+    <=> cur.starting_offset < lck.l_start & cur.len > lck.l_len
+
+Cas 2: 

@@ -1,0 +1,110 @@
+Application verrou:
+
+apply_unlock(flock ul, rl_descriptor lfd):
+begin
+    nb_locks_to_remove := 0
+    locks_to_remove := new rl_lock[lfd.file->nb_locks]
+    nb_new_locks := 0
+    new_locks := new rl_lock[2 * lfd.file->nb_locks]
+    lfd_owner = {.pid = pid, .fd = lfd.fd}
+    Pour cur dans lfd.file->lock_table:
+        Si lfd_owner est proprio de cur & seg_overlap(cur, ul):
+            ...
+end
+
+LABEL
+pour chaque verrou l:
+    if seg_overlap avec ul et je suis owner de l:
+        calculer l.zone - ul.zone == 0, 1 ou 2 nouveaux verrous
+        enlever soi-même des owners de l et free l si 0 owners
+        réorganiser les verrous
+        mettre les nouveaux verrous en sachant que s'il y a un verrou qui est
+        exactement le même je rajoute owner au lieu d'ajouter un rl_lock donc
+        probablement appel à apply_rw_lock()
+        goto LABEL
+// on arrive ici quand la boucle ne rentre jamais dans le if
+return 0
+----------------------
+apply_rw_lock(lock1) :
+pour chaque verrou v:
+    if v englobe lock1 && je possède v && v et lock1 ont le même R/W: return 0
+pour chaque verrou v:
+    si v égal à lock1 (même région et même R/W):
+        m'ajouter en tant qu'owner de v
+        return 0
+LABEL2
+pour chaque verrou v :
+    if je possède v && lock1 overlap v:
+        ul = verrou à appliquer en unlock qui est sur l'intersection entre lock1
+        et v
+        apply_unlock(ul)
+        goto LABEL2
+gauche = NULL, droite = NULL
+pour chaque verrou v :
+    si v se termine à l'octet juste avant lock1 && je possède v
+       && v a le même R/W:
+        gauche = &v
+    si v commence à l'octet juste après lock1 && je possède v
+       && v a le même R/W:
+        droite = &v
+lock2 = lock1
+if gauche != NULL && droite != NULL:
+    lock2 = le verrou pareil que lock1 mais qui commence à gauche.debut finit à
+          droite.fin
+    apply_unlock(gauche)
+    apply_unlock(droite)
+else if gauche != NULL:
+    lock2 = le verrou pareil que lock1 mais qui va de gauche.debut à lock1.fin
+    apply_unlock(gauche)
+else if droite != NULL:
+    lock2 = le verrou pareil que lock1 mais qui va de lock1.debut à droite.fin
+    apply_unlock(droite)
+ajouter lock2 à la liste des locks
+
+================================================================================
+
+file is new rl_open_file:
+     typedef struct {
+         int nb_locks;
+         rl_lock lock_table[NB_LOCKS];
+     } rl_open_file;
+
+remove_locks_of(pid, file):
+    Vérifier que file et pid sont valides
+    Pour i de 0 à file->nb_locks:
+        rl_lock *cur = &file->lock_table[i]
+        Pour j de 0 à cur->nb_owners:
+            Si cur->lock_owners[j].pid = pid:
+                Supprimer cur->lock_owners[j]
+
+(1) Supprimer les verrous de tous les processus morts
+
+while (pid == exists_dead_process()):
+    remove_locks_of(pid)
+
+remove_locks_of(pid): fonction qui supprime les verrous associés à pid
+   -> refactor rl_close
+
+exists_dead_process(): retourne le pid d'un processus mort qui a des locks
+
+Algo 2 var 1:
+Prendre le verrou sur tout le open_file
+Supprimer les verrous de tous les processus morts (1)
+Si le verrou est applicable:
+   Poser le verrou et faire les modifs que cela implique
+Relacher le verrou
+
+Algo 2 var 2:
+Prendre le verrou sur tout le open_file
+Tant que le verrou n'est pas applicable à cause d'un processus mort:
+    Retirer les verrous du processus mort
+Si le verrou est applicable:
+    Poser le verrou
+Relacher le verrou
+
+Algo 1:
+Convertir flock en rl_lock
+Bloquer rl_open_file
+Si le placement est possible:
+    Placer rl_lock en maitenant lock_table triée
+Débloquer rl_open_file
