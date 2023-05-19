@@ -23,6 +23,7 @@
               lfd.file->nb_locks--
           Sinon
               retirer lfd_owner de lfd.file->lock_table[ind].lock_owners
+      Organiser les locks
       Pour i de 0 à nb_new_locks:
           Si lfd.file->lock_table contient new_locks[i]:
               Ajouter lfd_owner aux owners
