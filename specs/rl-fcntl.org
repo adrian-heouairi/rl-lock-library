@@ -83,6 +83,60 @@
 
   le verrou est considéré applicable
 
-  S'il existe un verrou v qui englobe lck et on est l'un des proprio
-  <=> (v.start <= lck.l_start & (v.start + v.len) >= (lck.l_start + lck.l_len))
-      -> Ne rien faire
+  begin
+      Pour i de 0 à lfd.file->nb_locks:
+          cur := &lfd.file->lock_table[i];
+          Si cur englobe lck & lfd_owner est proprio de cur // déjà vérouillé
+            & cur->type = lck->l_type:
+              Retourner SUCCÈS
+      Pour i de 0 à lfd.file->nb_locks:
+          cur := &lfd.file->lock_table[i];
+          Si cur->type = lck->l_type & cur->start = lck->l_start // déjà présent
+            & cur->len = lck->l_len:
+              Ajouter lfd_owner à cur->lock_owner
+              cur->nb_owners++
+              Retourner SUCCÈS
+      Si lfd.file->nb_locks + 2 > RL_MAX_LOCKS:
+          Retourner ERREUR
+      struct flock ul
+      ul.l_type := F_UNLCK
+      ul.l_whence := SEEK_SET
+      ul.l_start := get_start(lck)
+      ul.l_len := lck->l_len
+      Si apply_unlock(ul) = -1:
+          Retourner ERREUR
+      left := NULL
+      right := NULL
+      Pour i de 0 à lfd.file->nb_locks:
+          cur := &lfd.file->lock_table[i]
+          Si cur->start + cur->len = lck->l_start
+            & lfd_owner est proprio de cur 
+            & cur->type = lck->l_type
+              left := cur
+          Si cur->start = lck->l_start + lck->l_len
+            & lfd_owner est proprio de cur
+            & cur->type = lck->l_type:
+              right := cur
+      rl_lock tmp
+      tmp.type := lck->l_type
+      tmp.start := lck->l_start
+      tmp.len := lck->l_len
+      tmp.nb_owners := 1
+      Initialiser tmp.lock_owners
+      Ajouter lfd_owner à tmp.lock_owners
+      Si left != NULL & right != NULL: // fusion des deux côtés
+          tmp.len += left->len + right->len
+          tmp.start = left->start
+          apply_unlock(left)
+          apply_unlock(right)
+      Sinon si left != NULL:
+          tmp.len += left->len
+          tmp.start = left->start
+          apply_unlock(left)
+      Sinon si right != NULL:
+          tmp.len += right->len
+          apply_unlock(right)
+      Ajouter tmp à la liste des locks
+      lfd.file->nb_locks++
+      Retourner SUCCES
+  end
