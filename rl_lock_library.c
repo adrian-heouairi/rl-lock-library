@@ -208,6 +208,23 @@ static int organize_locks(rl_open_file *file) {
     return 0;
 }
 
+/**
+ * @brief Converts `from` into a `struct flock` and puts the result in `to`
+ * @param from the original `rl_lock`
+ * @param to the conversion of `from` to a `struct flock`
+ * @return 0 on success, -1 on error
+ */
+static int rl_lock_to_flock(const rl_lock *from, struct flock *to) {
+    if (from == NULL || to == NULL)
+        return -1;
+
+    to->l_type = from->type;
+    to->l_whence = SEEK_SET;
+    to->l_start = from->start;
+    to->l_len = from->len;
+    return 0;
+}
+
 /******************************************************************************/
 
 /**
