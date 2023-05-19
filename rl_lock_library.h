@@ -1,12 +1,8 @@
 #ifndef _RL_LOCK_LIBRARY
 #define _RL_LOCK_LIBRARY
 
-#include <sys/file.h>
-#include <sys/types.h>
-#include <pthread.h>
+#include <fcntl.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <string.h>
 
 typedef struct rl_owner rl_owner;
 typedef struct rl_lock rl_lock;

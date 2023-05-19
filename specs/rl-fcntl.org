@@ -1,0 +1,88 @@
+* Application unlock
+  struct flock lck: verrou à poser (de type F_UNLCK)
+
+  on suppose les verrous de longueur finie
+  pour lck.l_start, utiliser ~get_starting_offset~
+
+  apply_unlock(flock ul, rl_descriptor lfd):
+  begin
+      nb_new_locks := 0
+      new_locks := new rl_lock[2 * lfd.file->nb_locks]
+      nb_locks_to_remove := 0
+      locks_to_remove := new int[lfd.file->nb_locks]
+      lfd_owner = {.pid = pid, .fd = lfd.fd}
+      Pour cur dans lfd.file->lock_table:
+          Si lfd_owner est proprio de cur & seg_overlap(cur, ul):
+              Traiter les cas ci-dessous
+          Si nb_new_locks + lfd.file->nb_locks > RL_MAX_LOCKS:
+              Retourner -1
+      Pour i de 0 à nb_locks_to_remove:
+          ind = locks_to_remove[i]
+          Si lfd.file->lock_table[ind].nb_owners == 1:
+              supprimer lfd.file->lock_table[ind]
+              lfd.file->nb_locks--
+          Sinon
+              retirer lfd_owner de lfd.file->lock_table[ind].lock_owners
+      Organiser les locks
+      Pour i de 0 à nb_new_locks:
+          Si lfd.file->lock_table contient new_locks[i]:
+              Ajouter lfd_owner aux owners
+          Sinon
+              lfd.file->lock_table[lfd.file->nb_locks] = new_locks[i]
+              initialiser lfd.file->lock_table[lfd.file->nb_locks].lock_owners
+              lfd.file->nb_locks += 1
+  end
+
+** C1: unlock au milieu de  cur
+   <=> cur.start < lck.l_start & (cur.start + cur.len > lck.l_start + lck.l_len)
+*** Conséquences
+    Ajouter l'indice de cur à locks_to_remove
+    Incrémenter nb_locks_to_remove
+
+    v1.type = cur.type;
+    v1.start = cur.start;
+    v1.len = lck.l_start - cur.start
+    Incrémenter nb_new_locks
+
+    v2.type = cur.type;
+    v2.start = lck.l_start + lck.l_len
+    v2.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
+    Incrémenter nb_new_locks
+** C2: unlock tout cur
+   <=> cur.start >= lck.l_start & cur.start + cur.len <= lck.l_start + lck.l_len
+*** Conséquences
+    Ajouter l'indice de cur à locks_to_remove
+    Incrémenter nb_locks_to_remove
+** C3: unlock la fin de la zone de cur
+   <=> cur.start < lck.l_start 
+   & (cur.start + cur.len <= lck.l_start + lck.l_len)
+*** Conséquences
+    Ajouter l'indice de cur à locks_to_remove
+    Incrémenter nb_locks_to_remove
+    
+    v1.type = cur.type;
+    v1.start = cur.start;
+    v1.len = lck.start - cur.start;
+    Incrémenter nb_new_locks
+** C4: unlock le début de la zone de cur
+   <=> lck.l_start <= cur.start 
+   & (cur.start + cur.len > lck.l_start + lck.l_len)
+*** Conséquences
+    Ajouter l'indice de cur à locks_to_remove
+    Incrémenter nb_locks_to_remove
+
+    v1.type = cur.type;
+    v1.start = lck.l_start + lck.l_len
+    v1.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
+    Incrémenter nb_new_locks
+* Application read/write lock
+  struct flock lck: verrou à poser
+
+  on suppose les verrous de longueur finie
+  pour lck.l_start, utiliser ~get_starting_offset~
+
+  le verrou est considéré applicable
+
+  S'il existe un verrou v qui englobe lck et on est l'un des proprio
+  <=> (v.start <= lck.l_start & (v.start + v.len) >= (lck.l_start + lck.l_len))
+      -> Ne rien faire

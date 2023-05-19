@@ -1,16 +1,19 @@
 CC=gcc
 CFLAGS=-Wall -g -pedantic -std=c11
 LDLIBS=-pthread -lrt
-ALL=test
+ALL=lib
 
 all: $(ALL)
 
 doc:
 	doxygen
 
-test: rl_lock_library.o
+lib: rl_lock_library.o
 
 rl_lock_library.o: rl_lock_library.c rl_lock_library.h
 
 clean:
-	rm -rf *~ *.o doc
+	rm -rf *~ *.o
+
+cleandoc:
+	rm -rf doc

@@ -4,11 +4,19 @@
  */
 
 #define _XOPEN_SOURCE 500
+#define _POSIX_C_SOURCE 200112L
 
 #include <stdarg.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/types.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+#include <signal.h>
 
 #include "rl_lock_library.h"
 
@@ -39,7 +47,7 @@ struct rl_owner {
  * @brief The locked segment of a file
  */
 struct rl_lock {
-    off_t starting_offset; /**< The beginning of the segment */
+    off_t start; /**< The beginning of the segment */
     off_t len; /**< The length of the segment */
     short type; /**< The type (F_RDLCK, F_WRLCK) of the lock */
     size_t nb_owners; /**< The number of owners of the lock */
@@ -90,8 +98,6 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
         return code;
     return pthread_mutex_init(pmutex, &mutexattr);
 }
-
-/******************************************************************************/
 
 /**
  * @brief Checks if `owner` is free
@@ -161,7 +167,7 @@ static int equals(rl_owner o1, rl_owner o2) {
  */
 static void erase_lock(rl_lock *lck) {
     if (lck != NULL)
-        lck->starting_offset = RL_FREE_LOCK;
+        lck->start = RL_FREE_LOCK;
 }
 
 /**
@@ -170,7 +176,7 @@ static void erase_lock(rl_lock *lck) {
  * @return 1 if `lck` is free, 0 otherwise
  */
 static int is_lock_free(rl_lock *lck) {
-    return lck != NULL && lck->starting_offset == RL_FREE_LOCK;
+    return lck != NULL && lck->start == RL_FREE_LOCK;
 }
 
 /**
@@ -202,6 +208,58 @@ static int organize_locks(rl_open_file *file) {
     return 0;
 }
 
+/******************************************************************************/
+
+/**
+ * @brief Deletes every owner that matches the given criteria in the given file
+ *
+ * This function does not use any locking mechanism. If `crit` returns a value
+ * > 0, the owner given as first parameter of the function is erased from the
+ * lock owners table of the currently considered lock of the file. If `crit`
+ * returns 0, nothing is done. If it returns -1, the function quits on error.
+ * After each removal, the owners in the lock owner table are reorganized, so as
+ * the locks if there are no owners left.
+ *
+ * @param file the file that contains the lock owners to remove
+ * @param crit a function that take two lock owners and returns an integer
+ * @param owner_crit the owner used as second parameter of `crit`
+ * @return 0 if the owner removal was succesful, -1 on error.
+ */
+static int delete_owner_on_criteria(rl_open_file *file,
+                                    int (*crit)(rl_owner, rl_owner),
+                                    rl_owner owner_crit) {
+    if (crit == NULL || file == NULL || file->nb_locks < 0
+        || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+
+    int locks_count = file->nb_locks;
+    for (int i = 0; i < file->nb_locks; i++) {
+        int owners_count = file->lock_table[i].nb_owners;
+        for (int j = 0; j < file->lock_table[i].nb_owners; j++) {
+            rl_owner *cur = &file->lock_table[i].lock_owners[j];
+            int res = crit(*cur, owner_crit);
+            if (res > 0) {
+                erase_owner(cur);
+                owners_count--;
+            } else if (res == -1)
+                return -1;
+        }
+        file->lock_table[i].nb_owners = owners_count;
+        if (organize_owners(&file->lock_table[i]) < 0)
+            return -1;
+        if (owners_count == 0) {
+            erase_lock(&file->lock_table[i]);
+            locks_count--;
+        }
+    }
+    file->nb_locks = locks_count;
+    if (organize_locks(file) < 0)
+        return -1;
+    return 0;
+}
+
+/******************************************************************************/
+
 /**
  * @brief Closes the given locked file descriptor
  *
@@ -225,26 +283,7 @@ int rl_close(rl_descriptor lfd) {
         return -1;
 
     rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
-    int nb_locks = lfd.file->nb_locks;
-    for (int i = 0; i < lfd.file->nb_locks; i++) {
-        int nb_owners = lfd.file->lock_table[i].nb_owners;
-        for (int j = 0; j < lfd.file->lock_table[i].nb_owners; j++) {
-            if (equals(lfd_owner, lfd.file->lock_table[i].lock_owners[j])) {
-                erase_owner(&lfd.file->lock_table[i].lock_owners[j]);
-                nb_owners--;
-            }
-        }
-        lfd.file->lock_table[i].nb_owners = nb_owners;
-        if (organize_owners(&lfd.file->lock_table[i]) == -1)
-            return -1;
-        if (lfd.file->lock_table[i].nb_owners == 0) {
-            erase_lock(&lfd.file->lock_table[i]);
-            nb_locks--;
-        }
-    }
-
-    lfd.file->nb_locks = nb_locks;
-    if (organize_locks(lfd.file) == -1)
+    if (delete_owner_on_criteria(lfd.file, equals, lfd_owner) < 0)
         return -1;
 
     if (close(lfd.fd) == -1)
@@ -403,4 +442,174 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
     rl_descriptor desc = {.fd = open_res, .file = rlo};
     return desc;
+}
+
+/**
+ * @brief Checks if the segment [s1, s1 + l1[ and [s2, s2 + l2[ overlap
+ * @param s1 the start of the first segment
+ * @param l1 the length of the first segment
+ * @param s2 the start of the second segment
+ * @param l2 the length of the second segment
+ * @return 1 if the segments overlap, 0 otherwise
+ */
+static int seg_overlap(off_t s1, off_t l1, off_t s2, off_t l2) {
+    if (l1 == 0)
+        return (l2 == 0) || (l2 > 0 && s2 + l2 - 1 >= s1);
+
+    if (s2 >= s1)
+        return s2 < s1 + l1;
+    else
+        return l2 == 0 || s2 + l2 > s1;
+}
+
+/**
+ * @brief Checks if the lock is owned by an rl_owner different than owner
+ * 
+ * This function does not use any locking mechanism to secure the access to
+ * lock, nor tests if owner is in fact an owner of lock.
+ * 
+ * @param lock the lock to check
+ * @param owner the owner to compare the lock owners with
+ * @return 1 if the lock is owned by a different owner, 0 otherwise
+ */
+static int has_different_owner(const rl_lock *lock, rl_owner owner) {
+    for (int i = 0; i < RL_MAX_OWNERS; i++) {
+        rl_owner other = lock->lock_owners[i];
+        if (!is_owner_free(&other)) {
+            if (!equals(other, owner))
+                return 1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Computes the starting offset of the lock of the file denoted by fd.
+ * @param lck a lock on a region
+ * @param fd the file descriptor of the file to lock
+ * @return the starting offset of the region or -1 if it could not be determined
+ */
+static off_t get_start(struct flock *lck, int fd) {
+    if (lck == NULL)
+        return -1;
+
+    if (lck->l_whence == SEEK_SET) {
+        if (lck->l_start >= 0)
+            return lck->l_start;
+        else
+            return -1; // before beginning of file !
+    } else if (lck->l_whence == SEEK_CUR || lck->l_whence == SEEK_END) {
+        off_t cur = lseek(fd, 0, SEEK_CUR); // current offset
+        if (cur == -1)
+            return -1;
+        off_t pos = lseek(fd, lck->l_start, lck->l_whence); // lock offset
+        if (pos == -1)
+            return -1;
+        if (lseek(fd, cur, SEEK_SET) == -1)
+            return -1;
+        return pos;
+    }
+    return -1;
+}
+
+/**
+ * @brief Checks if the given lock can be put on the given descriptor
+ * 
+ * This function does not use any locking mechanism, so be sure to take the lock
+ * before entering this function in order to verify mutual exclusion.
+ *
+ * @param lck the lock to put
+ * @param lfd the file on which to put the lock
+ * @return 1 if the lock is applicable, 0 if it is not, -1 if an error occured.
+ * If the lock is not applicable because of a lock put by a process that has
+ * died and has not removed its locks, returns the pid of that process.
+ */
+static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
+    if (lck == NULL || lfd.file == NULL || lck->l_len <= 0)
+        return -1;
+
+    off_t start = get_start(lck, lfd.fd);
+    if (start == -1)
+        return -1;
+
+    if (lck->l_type == F_UNLCK)
+        return 1;
+
+    rl_open_file *file = lfd.file;
+    if (file->nb_locks < 0 || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+    for (int i = 0; i < file->nb_locks; i++) {
+        rl_lock *cur = &file->lock_table[i];
+
+        /* if locks overlap check for conflicts */
+        if (seg_overlap(cur->start, cur->len, start, lck->l_len)) {
+            rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+
+            if ((cur->type == F_RDLCK && lck->l_type == F_WRLCK)
+                || cur->type == F_WRLCK) {
+                if (has_different_owner(cur, lfd_owner)) {
+                    /* check if owner is still alive */
+                    for (int j = 0; j < cur->nb_owners; j++) {
+                        if (!equals(lfd_owner, cur->lock_owners[j])) {
+                            if (kill(cur->lock_owners[j].pid, 0) == -1) {
+                                return cur->lock_owners[j].pid;
+                            } else {
+                                return 0;
+                            }
+                        }
+                    }
+
+                    /* there is a different owner that has not been found */
+                    return -1;
+                }
+            }
+        }
+    }
+    return 1;
+}
+
+/**
+ * @brief Checks if `ol` and `or` have the same PID
+ * @param ol the left owner
+ * @param or the right owner
+ * @return 1 if `ol` and `or` have the same PID, 0 otherwise
+ */
+static int same_pid(rl_owner ol, rl_owner or) {
+    return ol.pid == or.pid;
+}
+
+/**
+ * @brief Removes the locks owned by the process of given PID in the given
+ * rl_open_file
+ *
+ * This function does not use any locking mechanism, be sure that mutual
+ * exclusion is assured before using it. If after removal a lock is empty, it is
+ * also deleted. The owners of every modified lock are reorganized, so as the
+ * locks of the file.
+ *
+ * @param pid the PID of the process that owns the locks to remove
+ * @param file the file that contains the locks to remove
+ * @return 0 on success, -1 on error
+ */
+static int remove_locks_of(pid_t pid, rl_open_file *file) {
+    if (pid <= 0 || file == NULL || file->nb_locks < 0
+        || file->nb_locks > RL_MAX_LOCKS)
+        return -1;
+
+    rl_owner cmp = {.pid = pid, .fd = 0};
+    if (delete_owner_on_criteria(file, same_pid, cmp) < 0)
+        return -1;
+    return 0;
+}
+
+/**
+ * @brief 
+ * 
+ * @param lfd 
+ * @param cmd 
+ * @param lck 
+ * @return int 
+ */
+int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
+    return -1;   
 }
