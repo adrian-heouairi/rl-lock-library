@@ -1,9 +1,8 @@
 * Application unlock
   struct flock lck: verrou à poser (de type F_UNLCK)
-  rl_lock cur: verrou courant lors du parcours de la table de locks
 
   on suppose les verrous de longueur finie
-  pour lck.l_start, utiliser `get_starting_offset`
+  pour lck.l_start, utiliser ~get_starting_offset~
 
   apply_unlock(flock ul, rl_descriptor lfd):
   begin
@@ -19,8 +18,9 @@
               Retourner -1
       Pour i de 0 à nb_locks_to_remove:
           ind = locks_to_remove[i]
-          Si lfd_owner est le dernier owner de lfd.file->lock_table[ind]:
-              supprimer lfd.file->lock_table[i]
+          Si lfd.file->nb_locks == 1:
+              supprimer lfd.file->lock_table[ind]
+              lfd.file->nb_locks--
           Sinon
               retirer lfd_owner de lfd.file->lock_table[ind].lock_owners
       Pour i de 0 à nb_new_locks:
@@ -28,6 +28,7 @@
               Ajouter lfd_owner aux owners
           Sinon
               lfd.file->lock_table[lfd.file->nb_locks] = new_locks[i]
+              initialiser lfd.file->lock_table[lfd.file->nb_locks].lock_owners
               lfd.file->nb_locks += 1
   end
 
@@ -47,7 +48,7 @@
     v2.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
     Incrémenter nb_new_locks
 ** C2: unlock tout cur
-   <=> cur.start >= lck.l_start & cur.len <= lck.l_len
+   <=> cur.start >= lck.l_start & cur.start + cur.len <= lck.l_start + lck.l_len
 *** Conséquences
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
@@ -63,7 +64,7 @@
     v1.len = lck.start - cur.start;
     Incrémenter nb_new_locks
 ** C4: unlock le début de la zone de cur
-   <=> lck.l_start < cur.start & (cur.start + cur.len >= lck.l_start)
+   <=> lck.l_start < cur.start & (cur.start + cur.len > lck.l_start + lck.l_len)
 *** Conséquences
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
@@ -73,3 +74,13 @@
     v1.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
     Incrémenter nb_new_locks
 * Application read/write lock
+  struct flock lck: verrou à poser
+
+  on suppose les verrous de longueur finie
+  pour lck.l_start, utiliser ~get_starting_offset~
+
+  le verrou est considéré applicable
+
+  S'il existe un verrou v qui englobe lck et on est l'un des proprio
+  <=> (v.start <= lck.l_start & (v.start + v.len) >= (lck.l_start + lck.l_len))
+      -> Ne rien faire

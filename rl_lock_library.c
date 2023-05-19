@@ -525,18 +525,15 @@ static off_t get_start(struct flock *lck, int fd) {
  * died and has not removed its locks, returns the pid of that process.
  */
 static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
-    if (lck == NULL || lfd.file == NULL)
+    if (lck == NULL || lfd.file == NULL || lck->l_len < 0)
         return -1;
-
-    if (lck->l_type == F_UNLCK) {
-        if (lck->l_start < 0)
-            return -1;
-        return 1;
-    }
 
     off_t start = get_start(lck, lfd.fd);
     if (start == -1)
         return -1;
+
+    if (lck->l_type == F_UNLCK)
+        return 1;
 
     rl_open_file *file = lfd.file;
     if (file->nb_locks < 0 || file->nb_locks > RL_MAX_LOCKS)
