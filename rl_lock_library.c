@@ -515,6 +515,8 @@ static off_t get_start(struct flock *lck, int fd) {
 /**
  * @brief Checks if the given lock can be put on the given descriptor
  * 
+ * This function only checks for conflicting locks, it doesn't verify if the
+ * lock table is big enough for the new locks. This is done in other functions.
  * This function does not use any locking mechanism, so be sure to take the lock
  * before entering this function in order to verify mutual exclusion.
  *
@@ -538,20 +540,21 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
     rl_open_file *file = lfd.file;
     if (file->nb_locks < 0 || file->nb_locks > RL_MAX_LOCKS)
         return -1;
+
+    rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+
     for (int i = 0; i < file->nb_locks; i++) {
         rl_lock *cur = &file->lock_table[i];
 
         /* if locks overlap check for conflicts */
         if (seg_overlap(cur->start, cur->len, start, lck->l_len)) {
-            rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
-
-            if ((cur->type == F_RDLCK && lck->l_type == F_WRLCK)
-                || cur->type == F_WRLCK) {
+            if (cur->type == F_WRLCK || lck->l_type == F_WRLCK) {
                 if (has_different_owner(cur, lfd_owner)) {
                     /* check if owner is still alive */
                     for (int j = 0; j < cur->nb_owners; j++) {
                         if (!equals(lfd_owner, cur->lock_owners[j])) {
-                            if (kill(cur->lock_owners[j].pid, 0) == -1) {
+                            if (kill(cur->lock_owners[j].pid, 0) == -1
+                                && errno == ESRCH) {
                                 return cur->lock_owners[j].pid;
                             } else {
                                 return 0;
