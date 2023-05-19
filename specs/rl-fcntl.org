@@ -18,7 +18,7 @@
               Retourner -1
       Pour i de 0 à nb_locks_to_remove:
           ind = locks_to_remove[i]
-          Si lfd.file->nb_locks == 1:
+          Si lfd.file->lock_table[ind].nb_owners == 1:
               supprimer lfd.file->lock_table[ind]
               lfd.file->nb_locks--
           Sinon
@@ -64,7 +64,8 @@
     v1.len = lck.start - cur.start;
     Incrémenter nb_new_locks
 ** C4: unlock le début de la zone de cur
-   <=> lck.l_start < cur.start & (cur.start + cur.len > lck.l_start + lck.l_len)
+   <=> lck.l_start <= cur.start 
+   & (cur.start + cur.len > lck.l_start + lck.l_len)
 *** Conséquences
     Ajouter l'indice de cur à locks_to_remove
     Incrémenter nb_locks_to_remove
