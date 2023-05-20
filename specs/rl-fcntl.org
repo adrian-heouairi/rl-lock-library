@@ -33,7 +33,7 @@
               lfd.file->nb_locks += 1
   end
 
-** C1: unlock au milieu de  cur
+** C1: unlock au milieu de cur
    <=> cur.start < lck.l_start & (cur.start + cur.len > lck.l_start + lck.l_len)
 *** Conséquences
     Ajouter l'indice de cur à locks_to_remove
