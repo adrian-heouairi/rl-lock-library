@@ -243,8 +243,7 @@ static int rl_lock_to_flock(const rl_lock *from, struct flock *to) {
  * @return 0 if the owner removal was succesful, -1 on error.
  */
 static int delete_owner_on_criteria(rl_open_file *file,
-        int (*crit)(rl_owner, rl_owner),
-        rl_owner owner_crit) {
+        int (*crit)(rl_owner, rl_owner), rl_owner owner_crit) {
     if (crit == NULL || file == NULL || file->nb_locks < 0
             || file->nb_locks > RL_MAX_LOCKS)
         return -1;
@@ -717,9 +716,8 @@ static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
  */
 static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
     if (lfd.fd < 0 || lfd.file == NULL || lck == NULL || lck->l_type != F_UNLCK
-            || lck->l_len <= 0 || lck->l_start < 0 || lfd.file->nb_locks < 0) {
+            || lck->l_len <= 0 || lck->l_start < 0 || lfd.file->nb_locks < 0)
         return -1;
-    }
 
     off_t lck_start = get_start(lck, lfd.fd);
     if (lck_start == -1)
