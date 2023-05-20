@@ -243,9 +243,9 @@ static int rl_lock_to_flock(const rl_lock *from, struct flock *to) {
  * @return 0 if the owner removal was succesful, -1 on error.
  */
 static int delete_owner_on_criteria(rl_open_file *file,
-        int (*crit)(rl_owner, rl_owner), rl_owner owner_crit) {
+                                    int (*crit)(rl_owner, rl_owner), rl_owner owner_crit) {
     if (crit == NULL || file == NULL || file->nb_locks < 0
-            || file->nb_locks > RL_MAX_LOCKS)
+        || file->nb_locks > RL_MAX_LOCKS)
         return -1;
 
     int locks_count = file->nb_locks;
@@ -392,7 +392,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
     char shm_path[256];
     int snprintf_res = snprintf(shm_path, 256, "/%s_%lu_%lu", SHM_PREFIX,
-            st.st_dev, st.st_ino);
+                                st.st_dev, st.st_ino);
     if (snprintf_res < 0) {
         close(open_res);
         errno = ECANCELED;
@@ -405,7 +405,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
     // then process 2 comes here and the shm exists but is not initialized
     if (shm_res >= 0) {
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
-                MAP_SHARED, shm_res, 0);
+                   MAP_SHARED, shm_res, 0);
         if (rlo == MAP_FAILED) {
             close(open_res);
             close(shm_res);
@@ -413,7 +413,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         }
     } else { // We create the shm
         int shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
-                S_IRWXU | S_IRWXG | S_IRWXO);
+                                S_IRWXU | S_IRWXG | S_IRWXO);
         if (shm_res2 == -1) {
             close(open_res);
             shm_unlink(shm_path);
@@ -430,7 +430,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         }
 
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
-                MAP_SHARED, shm_res2, 0);
+                   MAP_SHARED, shm_res2, 0);
         if (rlo == MAP_FAILED)
             goto error;
 
@@ -570,7 +570,7 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
                     for (int j = 0; j < cur->nb_owners; j++) {
                         if (!equals(lfd_owner, cur->lock_owners[j])) {
                             if (kill(cur->lock_owners[j].pid, 0) == -1
-                                    && errno == ESRCH) {
+                                && errno == ESRCH) {
                                 return cur->lock_owners[j].pid;
                             } else {
                                 return 0;
@@ -612,7 +612,7 @@ static int same_pid(rl_owner ol, rl_owner or) {
  */
 static int remove_locks_of(pid_t pid, rl_open_file *file) {
     if (pid <= 0 || file == NULL || file->nb_locks < 0
-            || file->nb_locks > RL_MAX_LOCKS)
+        || file->nb_locks > RL_MAX_LOCKS)
         return -1;
 
     rl_owner cmp = {.pid = pid, .fd = 0};
@@ -629,7 +629,7 @@ static int remove_locks_of(pid_t pid, rl_open_file *file) {
  */
 static int add_owner(rl_owner new, rl_lock *lck) {
     if (new.pid < 0 || new.fd < 0 || lck == NULL || lck->nb_owners < 0
-            || lck->nb_owners + 1 > RL_MAX_OWNERS)
+        || lck->nb_owners + 1 > RL_MAX_OWNERS)
         return -1;
     lck->lock_owners[lck->nb_owners] = new;
     lck->nb_owners++;
@@ -666,9 +666,9 @@ static int is_owner_of(rl_owner owner, rl_lock *lck) {
  */
 static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
     if (new == NULL || file == NULL || first.pid < 0 || first.fd < 0
-            || new->type != F_RDLCK || new->type != F_WRLCK || new->start < 0
-            || new->len <= 0 || file->nb_locks + 1 > RL_MAX_LOCKS
-            || file->nb_locks < 0)
+        || (new->type != F_RDLCK && new->type != F_WRLCK) || new->start < 0
+        || new->len <= 0 || file->nb_locks + 1 > RL_MAX_LOCKS
+        || file->nb_locks < 0)
         return -1;
     file->lock_table[file->nb_locks] = *new;
     rl_lock *tmp = &file->lock_table[file->nb_locks];
@@ -690,12 +690,12 @@ static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
  */
 static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
     if (file == NULL || lck == NULL || file->nb_locks < 0 || lck->start < 0
-            || lck->len <= 0 || lck->type != F_WRLCK || lck->type != F_RDLCK)
+        || lck->len <= 0 || lck->type != F_WRLCK || lck->type != F_RDLCK)
         return NULL;
     for (int i = 0; i < file->nb_locks; i++) {
         rl_lock *tmp = &file->lock_table[i];
         if (tmp->start == lck->start && tmp->len && lck->len
-                && tmp->type == lck->type)
+            && tmp->type == lck->type)
             return tmp;
     }
     return NULL;
@@ -716,7 +716,7 @@ static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
  */
 static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
     if (lfd.fd < 0 || lfd.file == NULL || lck == NULL || lck->l_type != F_UNLCK
-            || lck->l_len <= 0 || lck->l_start < 0 || lfd.file->nb_locks < 0)
+        || lck->l_len <= 0 || lck->l_start < 0 || lfd.file->nb_locks < 0)
         return -1;
 
     off_t lck_start = get_start(lck, lfd.fd);
@@ -732,11 +732,11 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
     for (int i = 0; i < nb_locks; i++) {
         rl_lock *cur = &lfd.file->lock_table[i];
         if (is_owner_of(lfd_owner, cur)
-                && seg_overlap(lck_start, lck->l_len, cur->start, cur->len)) {
-                locks_to_remove[nb_locks_to_remove] = i;
-                nb_locks_to_remove++;
+            && seg_overlap(lck_start, lck->l_len, cur->start, cur->len)) {
+            locks_to_remove[nb_locks_to_remove] = i;
+            nb_locks_to_remove++;
             if (cur->start < lck_start /* strict unlock of cur middle */
-                    && cur->start + cur->len > lck_start + lck->l_len) {
+                && cur->start + cur->len > lck_start + lck->l_len) {
                 rl_lock l1, l2;
                 l1.type = cur->type;
                 l1.start = cur->start;
@@ -750,10 +750,10 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
                 new_locks[nb_new_locks] = l2;
                 nb_new_locks++;
             } else if (cur->start >= lck_start /* unlock cur entirely */
-                    && cur->start + cur->len <= lck_start + lck->l_len)
+                       && cur->start + cur->len <= lck_start + lck->l_len)
                 continue;
             else if (cur->start < lck_start /* unlock end of cur */
-                    && cur->start + cur->len <= lck_start + lck->l_len) {
+                     && cur->start + cur->len <= lck_start + lck->l_len) {
                 rl_lock l1;
                 l1.type = cur->type;
                 l1.start = cur->start;
