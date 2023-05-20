@@ -674,6 +674,7 @@ static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
     rl_lock *tmp = &file->lock_table[file->nb_locks];
     for (int i = 0; i < RL_MAX_OWNERS; i++)
         erase_owner(&tmp->lock_owners[i]);
+    file->nb_locks++;
     tmp->nb_owners = 0;
     if (add_owner(first, tmp) == -1)
         return -1;
