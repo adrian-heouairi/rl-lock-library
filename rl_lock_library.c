@@ -68,7 +68,7 @@ struct rl_open_file {
  */
 struct rl_descriptor {
     int fd; /**< The open file descriptor as in the descriptor table */
-    rl_open_file *file; /**< The locks associated to the open file description */
+    rl_open_file *file; /**< The locks on the open file */
 };
 
 /**
@@ -243,10 +243,10 @@ static int rl_lock_to_flock(const rl_lock *from, struct flock *to) {
  * @return 0 if the owner removal was succesful, -1 on error.
  */
 static int delete_owner_on_criteria(rl_open_file *file,
-                                    int (*crit)(rl_owner, rl_owner),
-                                    rl_owner owner_crit) {
+        int (*crit)(rl_owner, rl_owner),
+        rl_owner owner_crit) {
     if (crit == NULL || file == NULL || file->nb_locks < 0
-        || file->nb_locks > RL_MAX_LOCKS)
+            || file->nb_locks > RL_MAX_LOCKS)
         return -1;
 
     int locks_count = file->nb_locks;
@@ -393,7 +393,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
     char shm_path[256];
     int snprintf_res = snprintf(shm_path, 256, "/%s_%lu_%lu", SHM_PREFIX,
-        st.st_dev, st.st_ino);
+            st.st_dev, st.st_ino);
     if (snprintf_res < 0) {
         close(open_res);
         errno = ECANCELED;
@@ -406,7 +406,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
     // then process 2 comes here and the shm exists but is not initialized
     if (shm_res >= 0) {
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
-            MAP_SHARED, shm_res, 0);
+                MAP_SHARED, shm_res, 0);
         if (rlo == MAP_FAILED) {
             close(open_res);
             close(shm_res);
@@ -414,7 +414,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         }
     } else { // We create the shm
         int shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
-            S_IRWXU | S_IRWXG | S_IRWXO);
+                S_IRWXU | S_IRWXG | S_IRWXO);
         if (shm_res2 == -1) {
             close(open_res);
             shm_unlink(shm_path);
@@ -423,7 +423,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         
         int trunc_res = ftruncate(shm_res2, sizeof(rl_open_file));
         if (trunc_res == -1) {
-            error:
+        error:
             close(open_res);
             close(shm_res2);
             shm_unlink(shm_path);
@@ -431,7 +431,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         }
 
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
-            MAP_SHARED, shm_res2, 0);
+                MAP_SHARED, shm_res2, 0);
         if (rlo == MAP_FAILED)
             goto error;
 
@@ -571,7 +571,7 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
                     for (int j = 0; j < cur->nb_owners; j++) {
                         if (!equals(lfd_owner, cur->lock_owners[j])) {
                             if (kill(cur->lock_owners[j].pid, 0) == -1
-                                && errno == ESRCH) {
+                                    && errno == ESRCH) {
                                 return cur->lock_owners[j].pid;
                             } else {
                                 return 0;
@@ -613,7 +613,7 @@ static int same_pid(rl_owner ol, rl_owner or) {
  */
 static int remove_locks_of(pid_t pid, rl_open_file *file) {
     if (pid <= 0 || file == NULL || file->nb_locks < 0
-        || file->nb_locks > RL_MAX_LOCKS)
+            || file->nb_locks > RL_MAX_LOCKS)
         return -1;
 
     rl_owner cmp = {.pid = pid, .fd = 0};
@@ -623,8 +623,193 @@ static int remove_locks_of(pid_t pid, rl_open_file *file) {
 }
 
 /**
+ * @brief Adds `new` to the owners table of `lck` if possible
+ * @param new the owner to add
+ * @param lck the lock to which to add the new owner
+ * @return 0 if `new` was succesfully added, -1 if it could not be added
+ */
+static int add_owner(rl_owner new, rl_lock *lck) {
+    if (new.pid < 0 || new.fd < 0 || lck == NULL || lck->nb_owners < 0
+            || lck->nb_owners + 1 > RL_MAX_OWNERS)
+        return -1;
+    lck->lock_owners[lck->nb_owners] = new;
+    lck->nb_owners++;
+    return 0;
+}
+
+/**
+ * @brief Checks if `owner` is an owner of `lck`
+ * @param owner the owner that might own `lck`
+ * @param lck the lock that might be owned by `owner`
+ * @return 1 if `owner` is an owner of `lck`, 0 if it is not, -1 on error
+ */
+static int is_owner_of(rl_owner owner, rl_lock *lck) {
+    if (owner.pid < 0 || owner.fd < 0 || lck == NULL || lck->nb_owners < 0)
+        return -1;
+
+    for (int i = 0; i < lck->nb_owners; i++) {
+        if (equals(owner, lck->lock_owners[i]))
+            return 1;
+    }
+    return 0;
+}
+
+/**
+ * @brief Adds `new` to the locks of `file` if possible, where `first` is the
+ * initial owner of `new`
+ *
+ * This function should be use when `new` is not already a lock of `file`. The
+ * owners that might be stored in `new` are erased.
+ *
+ * @param new the lock to add
+ * @param file the file in which to add `new`
+ * @param first the initial owner of `new`
+ */
+static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
+    if (new == NULL || file == NULL || first.pid < 0 || first.fd < 0
+            || new->type != F_RDLCK || new->type != F_WRLCK || new->start < 0
+            || new->len <= 0 || file->nb_locks + 1 > RL_MAX_LOCKS
+            || file->nb_locks < 0)
+        return -1;
+    file->lock_table[file->nb_locks] = *new;
+    rl_lock *tmp = &file->lock_table[file->nb_locks];
+    for (int i = 0; i < RL_MAX_OWNERS; i++)
+        erase_owner(&tmp->lock_owners[i]);
+    tmp->nb_owners = 0;
+    if (add_owner(first, tmp) == -1)
+        return -1;
+    return 0;
+}
+
+/**
+ * @brief Gets the lock in `file` that starts at the same offset, has the same
+ * length and is of the same type than `lck`
+ * @param file the file that might contain `lck`
+ * @param lck the lock to find in `file`
+ * @return A pointer to the corresponding lock in file or NULL if it was not
+ * found
+ */
+static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
+    if (file == NULL || lck == NULL || file->nb_locks < 0 || lck->start < 0
+            || lck->len <= 0 || lck->type != F_WRLCK || lck->type != F_RDLCK)
+        return NULL;
+    for (int i = 0; i < file->nb_locks; i++) {
+        rl_lock *tmp = &file->lock_table[i];
+        if (tmp->start == lck->start && tmp->len && lck->len
+                && tmp->type == lck->type)
+            return tmp;
+    }
+    return NULL;
+}
+
+/**
+ * @brief Unlocks the region delimited by `lck` of the open file pointed by
+ * `lfd`
+ *
+ * `lck` must be of type `F_UNLCK`, the region to lock must be finite (not
+ * extensible) and must start at or after the beginning of the file. This
+ * function does not use any locking mechanism, ensure mutual exclusion before
+ * the call.
+ *
+ * @param lfd the file descriptor to unlock
+ * @param lck the region to unlock
+ * @return 0 on success, -1 on error
+ */
+static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
+    if (lfd.fd < 0 || lfd.file == NULL || lck == NULL || lck->l_type != F_UNLCK
+            || lck->l_len <= 0 || lck->l_start < 0 || lfd.file->nb_locks < 0) {
+        return -1;
+    }
+
+    off_t lck_start = get_start(lck, lfd.fd);
+    if (lck_start == -1)
+        return -1;
+
+    int nb_locks = lfd.file->nb_locks;
+    size_t nb_new_locks = 0;
+    rl_lock new_locks[2 * nb_locks];
+    size_t nb_locks_to_remove = 0;
+    size_t locks_to_remove[nb_locks];
+    rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+    for (int i = 0; i < nb_locks; i++) {
+        rl_lock *cur = &lfd.file->lock_table[i];
+        if (is_owner_of(lfd_owner, cur)
+                && seg_overlap(lck_start, lck->l_len, cur->start, cur->len)) {
+                locks_to_remove[nb_locks_to_remove] = i;
+                nb_locks_to_remove++;
+            if (cur->start < lck_start /* strict unlock of cur middle */
+                    && cur->start + cur->len > lck_start + lck->l_len) {
+                rl_lock l1, l2;
+                l1.type = cur->type;
+                l1.start = cur->start;
+                l1.len = lck_start - cur->start;
+                new_locks[nb_new_locks] = l1;
+                nb_new_locks++;
+
+                l2.type = cur->type;
+                l2.start = lck_start + lck->l_len;
+                l2.len = (cur->start + cur->len) - (lck_start + lck->l_len);
+                new_locks[nb_new_locks] = l2;
+                nb_new_locks++;
+            } else if (cur->start >= lck_start /* unlock cur entirely */
+                    && cur->start + cur->len <= lck_start + lck->l_len)
+                continue;
+            else if (cur->start < lck_start /* unlock end of cur */
+                    && cur->start + cur->len <= lck_start + lck->l_len) {
+                rl_lock l1;
+                l1.type = cur->type;
+                l1.start = cur->start;
+                l1.len = lck_start - cur->start;
+                new_locks[nb_new_locks] = l1;
+                nb_new_locks++;
+            } else { /* unlock beginning of cur */
+                rl_lock l1;
+                l1.type = cur->type;
+                l1.start = lck_start + lck->l_len;
+                l1.len = (cur->start + cur->len) - (lck_start + lck->l_len);
+                new_locks[nb_new_locks] = l1;
+                nb_new_locks++;
+            }
+        }
+        if (nb_new_locks + nb_locks > RL_MAX_LOCKS)
+            return -1;
+    }
+    for (int i = 0; i < nb_locks_to_remove; i++) {
+        size_t ind = locks_to_remove[i];
+        rl_lock *rlck = &lfd.file->lock_table[ind];
+        if (rlck->nb_owners == 1) {
+            erase_lock(rlck);
+            lfd.file->nb_locks--;
+        } else {
+            size_t nb_owners = rlck->nb_owners;
+            for (int j = 0; j < rlck->nb_owners; j++) {
+                if (equals(lfd_owner, rlck->lock_owners[j])) {
+                    erase_owner(&rlck->lock_owners[j]);
+                    nb_owners--;
+                }
+            }
+            rlck->nb_owners = nb_owners;
+            if (organize_owners(rlck) == -1)
+                return -1;
+        }
+    }
+    if (organize_locks(lfd.file) == -1)
+        return -1;
+    for (int i = 0; i < nb_new_locks; i++) {
+        rl_lock *tmp = find_lock(lfd.file, &new_locks[i]);
+        if (tmp != NULL) {
+            if (add_owner(lfd_owner, tmp) == -1)
+                return -1;
+        } else {
+            if (add_lock(&new_locks[i], lfd.file, lfd_owner) == -1)
+                return -1;
+        }
+    }
+    return 0;
+}
+
+/**
  * @brief 
- * 
  * @param lfd 
  * @param cmd 
  * @param lck 
