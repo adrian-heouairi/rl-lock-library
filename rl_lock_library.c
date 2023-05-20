@@ -978,3 +978,34 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
     rl_descriptor res = {.fd = new_fd, .file = lfd.file};
     return res;
 }
+
+/******************************************************************************/
+
+pid_t rl_fork() {
+    pid_t pid = fork();
+    if (pid == (pid_t) -1)
+        return -1;
+    
+    if (child == 0) {
+        pid_t parent = getppid();
+        /*
+         * Pour i de 0 à nb_files:
+         *     file := open_files[i]
+         *     Pour j de 0 à file->nb_locks:
+         *         lck := file->lock_table[j]
+         *         nb_owners := lck->nb_owners
+         *         Pour k de 0 à lck->nb_owners:
+         *             Si lck->lock_owner[k].pid = parent:
+         *                 Si nb_owners + 1 > RL_MAX_OWNERS:
+         *                     Retourner -1
+         *                 lck->lock_owner[nb_owners] =
+         *                   {.pid = getpid(), .fd = lck->lock_owner[k].fd}
+         *                 nb_owners++
+         *         Si nb_owners != lck->nb_owners:
+         *             Organiser lck->lock_owners
+         *  Retourner 0
+         */
+    }
+
+    return pid;
+}
