@@ -1,0 +1,50 @@
+* rl_dup
+  in: rl_descriptor lfd
+
+  en cas d'erreur, retourner {.fd = -1, .file = NULL}
+
+  begin
+      new_fd := dup(lfd.fd)
+      new_owner := {.pid = getpid(), .fd = new_fd}
+      Si dup_owner(lfd, new_owner) = -1:
+          Fermer new_fd
+          Retourner ERREUR
+      new_desc := {.fd = new_fd, .file = lfd.file}
+      Retourner new_desc
+  end
+
+* rl_dup2
+  in:
+  - rl_descriptor lfd
+  - int new_fd
+
+  begin
+      Si lfd.fd = new_fd:
+          Retourner lfd
+      new_fd = dup2(lfd.fd, new_fd)
+      new_owner := {.pid = getpid(), .fd = new_fd}
+      Si dup_owner(lfd, new_owner):
+          Fermer new_fd
+          Retourner ERREUR
+      new_desc := {.fd = new_fd, .file = lfd.file}
+      Retourner new_desc
+  end
+
+* dup_owner
+  in:
+  - rl_descriptor lfd
+  - rl_owner new_owner
+
+  out: 0 si succès, -1 si erreur
+    
+  begin
+      lfd_owner := {.pid = getpid(), .fd = lfd.fd}
+      Pour i de 0 à lfd.file->nb_locks:
+          tmp := &lfd.file->lock_table[i]
+          Si lfd_owner est owner de tmp:
+              Si tmp n'a pas atteint son nombre max d'owner:
+                  Ajouter new_owner en tant qu'owner de tmp
+                  Incrémenter le nombre d'owner
+              Sinon
+                  Retourner ERREUR
+      Retourner SUCCES
