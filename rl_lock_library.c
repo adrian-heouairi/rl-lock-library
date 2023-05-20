@@ -691,11 +691,11 @@ static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
  */
 static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
     if (file == NULL || lck == NULL || file->nb_locks < 0 || lck->start < 0
-        || lck->len <= 0 || lck->type != F_WRLCK || lck->type != F_RDLCK)
+        || lck->len <= 0 || (lck->type != F_WRLCK && lck->type != F_RDLCK))
         return NULL;
     for (int i = 0; i < file->nb_locks; i++) {
         rl_lock *tmp = &file->lock_table[i];
-        if (tmp->start == lck->start && tmp->len && lck->len
+        if (tmp->start == lck->start && tmp->len == lck->len
             && tmp->type == lck->type)
             return tmp;
     }
@@ -717,7 +717,7 @@ static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
  */
 static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
     if (lfd.fd < 0 || lfd.file == NULL || lck == NULL || lck->l_type != F_UNLCK
-        || lck->l_len <= 0 || lck->l_start < 0 || lfd.file->nb_locks < 0)
+        || lck->l_len <= 0 || lfd.file->nb_locks < 0)
         return -1;
 
     off_t lck_start = get_start(lck, lfd.fd);
