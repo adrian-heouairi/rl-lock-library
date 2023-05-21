@@ -214,15 +214,11 @@ static int organize_locks(rl_open_file *file) {
  * @param to the conversion of `from` to a `struct flock`
  * @return 0 on success, -1 on error
  */
-static int rl_lock_to_flock(const rl_lock *from, struct flock *to) {
-    if (from == NULL || to == NULL)
-        return -1;
-
+static void rl_lock_to_flock(const rl_lock *from, struct flock *to) {
     to->l_type = from->type;
     to->l_whence = SEEK_SET;
     to->l_start = from->start;
     to->l_len = from->len;
-    return 0;
 }
 
 /******************************************************************************/
@@ -640,12 +636,9 @@ static int add_owner(rl_owner new, rl_lock *lck) {
  * @brief Checks if `owner` is an owner of `lck`
  * @param owner the owner that might own `lck`
  * @param lck the lock that might be owned by `owner`
- * @return 1 if `owner` is an owner of `lck`, 0 if it is not, -1 on error
+ * @return 1 if `owner` is an owner of `lck`, 0 if it is not
  */
 static int is_owner_of(rl_owner owner, rl_lock *lck) {
-    if (owner.pid < 0 || owner.fd < 0 || lck == NULL || lck->nb_owners < 0)
-        return -1;
-
     for (int i = 0; i < lck->nb_owners; i++) {
         if (equals(owner, lck->lock_owners[i]))
             return 1;
@@ -804,6 +797,95 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
                 return -1;
         }
     }
+    return 0;
+}
+
+/**
+ * @brief Locks the region specified by `lck` of the open file pointed by
+ * `lfd`
+ *
+ * The region to lock must be finite (not
+ * extensible) and must start at or after the beginning of the file. This
+ * function does not use any locking mechanism, ensure mutual exclusion before
+ * the call.
+ *
+ * @param lfd the file descriptor to lock
+ * @param lck the region to lock
+ * @return 0 on success, -1 on error
+ */
+static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
+    if (lfd.file->nb_locks + 2 > RL_MAX_LOCKS)
+        return -1;
+
+    off_t lck_start = get_start(lck, lfd.fd);
+    if (lck_start == -1)
+        return -1;
+
+    struct flock unlock;
+    unlock.l_type = F_UNLCK;
+    unlock.l_whence = SEEK_SET;
+    unlock.l_start = lck_start;
+    unlock.l_len = lck->l_len;
+    if (apply_unlock(lfd, &unlock) == -1)
+        return -1;
+    
+    rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+    rl_lock *left = NULL;
+    rl_lock *right = NULL;
+    for (int i = 0; i < lfd.file->nb_locks; i++) {
+        rl_lock *cur = &lfd.file->lock_table[i];
+        if (cur->type != lck->l_type || !is_owner_of(lfd_owner, cur))
+            continue;
+        if (cur->start + cur->len == lck_start)
+            left = cur;
+        else if (cur->start == lck_start + lck->l_len)
+            right = cur;
+    }
+
+    int unlock_left = 0;
+    int unlock_right = 0;
+    rl_lock tmp;
+    tmp.type = lck->l_type;
+    tmp.start = lck_start;
+    tmp.len = lck->l_len;
+    if (left != NULL && right != NULL) {
+        tmp.len += left->len + right->len;
+        tmp.start = left->start;
+        unlock_left = 1;
+        unlock_right = 1;
+    } else if (left != NULL) {
+        tmp.len += left->len;
+        tmp.start = left->start;
+        unlock_left = 1;
+    } else if (right != NULL) {
+        tmp.len += right->len;
+        unlock_right = 1;
+    }
+
+    if (unlock_left) {
+        struct flock left2;
+        rl_lock_to_flock(left, &left2);
+        left2.l_type = F_UNLCK;
+        if (apply_unlock(lfd, &left2) == -1)
+            return -1;
+    }
+    if (unlock_right) {
+        struct flock right2;
+        rl_lock_to_flock(right, &right2);
+        right2.l_type = F_UNLCK;
+        if (apply_unlock(lfd, &right2) == -1)
+            return -1;
+    }
+
+    rl_lock *tmp2 = find_lock(lfd.file, &tmp);
+    if (tmp2 != NULL) {
+        if (add_owner(lfd_owner, tmp2) == -1)
+            return -1;
+    } else {
+        if (add_lock(&tmp, lfd.file, lfd_owner) == -1)
+            return -1;
+    }
+    
     return 0;
 }
 
