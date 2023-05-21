@@ -1,25 +1,25 @@
 CC=gcc
 CFLAGS=-Wall -g -pedantic -std=c11
 LDLIBS=-pthread -lrt
-ALL=lib tests
 
-all: $(ALL)
+all: rl_lock_library.o compile_tests
 
 doc:
 	doxygen
 
-lib: rl_lock_library.o
-
 rl_lock_library.o: rl_lock_library.c rl_lock_library.h
 
-test_count_to_200000.o: test_count_to_200000.c rl_lock_library.h rl_lock_library.o
+test_files := $(shell find . ! -name rl_lock_library.c -name "*.c")
 
-test_count_to_200000: rl_lock_library.o test_count_to_200000.o
+compile_tests: rl_lock_library.o
+	for i in $(test_files); do \
+		$(CC) $(CFLAGS) $(LDLIBS) -o $${i%.c}.test $$i rl_lock_library.o; done
 
-tests: test_count_to_200000
+test: compile_tests
+	./tests.sh
 
 clean:
-	rm -rf *~ *.o
+	rm -rf *~ *.o *.test
 
 cleandoc:
 	rm -rf doc
