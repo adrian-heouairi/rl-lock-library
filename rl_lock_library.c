@@ -997,7 +997,7 @@ rl_descriptor rl_dup(rl_descriptor lfd) {
  * @brief Duplicates `lfd` using `new_fd`
  * @param lfd the locked file description to duplicate
  * @param new_fd the open file description to use for the duplication
- * @return {.fd = new_fd, .file = lfd.file} on succes, {.fd = -1, .file = NULL}
+ * @return {.fd = new_fd, .file = lfd.file} on success, {.fd = -1, .file = NULL}
  * on error
  */
 rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
@@ -1053,4 +1053,56 @@ pid_t rl_fork() {
     }
 
     return pid;
+}
+
+/******************************************************************************/
+
+/**
+ * @brief Prints an `rl_open_file` to standard output
+ * @param file the open file to print
+ * @param display_pids whether to print owner PIDs
+ * @return 0 on success, -1 on error
+ */
+int rl_print_open_file(rl_open_file *file, int display_pids) {
+    if (pthread_mutex_lock(&file->mutex))
+        return -1;
+
+    char buffer[2048] = "";
+    int length = 0;
+
+    length += sprintf(buffer + length, "Number of locks: %d\n",
+    file->nb_locks);
+
+    for (int i = 0; i < file->nb_locks; i++) {
+        rl_lock *lck = &file->lock_table[i];
+
+        length += sprintf(buffer + length, "===== Lock %d:\n", i);
+
+        if (lck->type == F_RDLCK)
+            length += sprintf(buffer + length, "Type: read\n");
+        else
+            length += sprintf(buffer + length, "Type: write\n");
+
+        length += sprintf(buffer + length, "Start: %ld\n", lck->start);
+        length += sprintf(buffer + length, "Length: %ld\n", lck->len);
+
+        length += sprintf(buffer + length, "Number of owners: %lu\n",
+        lck->nb_owners);
+        for (int j = 0; j < lck->nb_owners; j++) {
+            rl_owner *owner = &lck->lock_owners[j];
+
+            if (display_pids)
+                length += sprintf(buffer + length,
+        "Owner %d: fd = %d, pid = %d\n", j, owner->fd, owner->pid);
+            else
+                length += sprintf(buffer + length,
+                "Owner %d: fd = %d\n", j, owner->fd);
+        }
+    }
+
+    if (pthread_mutex_unlock(&file->mutex))
+        return -1;
+
+    printf("%s", buffer);
+    return 0;
 }
