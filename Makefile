@@ -13,7 +13,7 @@ test_files := $(shell find . ! -name rl_lock_library.c -name "*.c")
 
 compile_tests: rl_lock_library.o
 	for i in $(test_files); do \
-		$(CC) $(CFLAGS) $(LDLIBS) -o $${i%.c}.test $$i rl_lock_library.o; done
+		$(CC) $(CFLAGS) -o $${i%.c}.test $$i rl_lock_library.o $(LDLIBS); done
 
 test: compile_tests
 	./tests.sh
