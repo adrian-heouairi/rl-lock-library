@@ -986,7 +986,7 @@ pid_t rl_fork() {
     if (pid == (pid_t) -1)
         return -1;
     
-    if (child == 0) {
+    if (pid == 0) {
         pid_t parent = getppid();
         /*
          * Pour i de 0 à nb_files:
