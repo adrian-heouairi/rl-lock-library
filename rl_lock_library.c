@@ -899,3 +899,82 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
 int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
     return -1;   
 }
+
+/******************************************************************************/
+
+/**
+ * @brief Adds new_owner as a lock owner of every lock where
+ * `lfd_owner = {.pid = getpid(), .fd = lfd.fd}` is also an owner
+ * @param lfd the file descriptor where to add `new_owner`
+ * @param new_owner the owner to add
+ * @return 0 on success, -1 on error
+ */
+static int dup_owner(rl_descriptor lfd, rl_owner new_owner) {
+    rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
+    for (int i = 0; i < lfd.file->nb_locks; i++) {
+        rl_lock *tmp = &lfd.file->lock_table[i];
+        int code = is_owner_of(lfd_owner, tmp);
+        if (code == -1)
+            return -1;
+        if (code) {
+            if (add_owner(new_owner, tmp) == -1)
+                return -1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Duplicates `lfd` using the lowest numbered available file descriptor
+ * @param lfd the locked file description to duplicate
+ * @return a duplication of `lfd` on success, {.fd = -1, .file = NULL} on error
+ */
+rl_descriptor rl_dup(rl_descriptor lfd) {
+    rl_descriptor err = {.fd = -1, .file = NULL};
+
+    if (lfd.fd < 0 || lfd.file == NULL)
+        return err;
+
+    int new_fd = dup(lfd.fd);
+    if (new_fd == -1)
+        return err;
+    
+    rl_owner new_owner = {.pid = getpid(), .fd = new_fd};
+    if (dup_owner(lfd, new_owner) == -1) {
+        close(new_fd);
+        return err;
+    }
+
+    rl_descriptor res = {.fd = new_fd, .file = lfd.file};
+    return res;
+}
+
+/**
+ * @brief Duplicates `lfd` using `new_fd`
+ * @param lfd the locked file description to duplicate
+ * @param new_fd the open file description to use for the duplication
+ * @return {.fd = new_fd, .file = lfd.file} on succes, {.fd = -1, .file = NULL}
+ * on error
+ */
+rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
+    rl_descriptor err = {.fd = -1, .file = NULL};
+
+    if (lfd.fd < 0 || lfd.file == NULL)
+        return err;
+
+    if (lfd.fd == new_fd)
+        return lfd;
+
+    int code = dup2(lfd.fd, new_fd);
+    if (code == -1)
+        return err;
+    
+    rl_owner new_owner = {.pid = getpid(), .fd = new_fd};
+    if (dup_owner(lfd, new_owner) == -1) {
+        close(new_fd);
+        return err;
+    }
+
+    rl_descriptor res = {.fd = new_fd, .file = lfd.file};
+    return res;
+}
