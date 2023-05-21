@@ -1064,10 +1064,7 @@ pid_t rl_fork() {
  * @return 0 on success, -1 on error
  */
 int rl_print_open_file(rl_open_file *file, int display_pids) {
-    if (pthread_mutex_lock(&file->mutex))
-        return -1;
-
-    char buffer[2048] = "";
+    char buffer[16384] = "";
     int length = 0;
 
     length += sprintf(buffer + length, "Number of locks: %d\n",
@@ -1099,9 +1096,6 @@ int rl_print_open_file(rl_open_file *file, int display_pids) {
                 "Owner %d: fd = %d\n", j, owner->fd);
         }
     }
-
-    if (pthread_mutex_unlock(&file->mutex))
-        return -1;
 
     printf("%s", buffer);
     return 0;
