@@ -76,7 +76,6 @@
     v1.len = (cur.start + cur.len) - (lck.l_start + lck.l_len)
     Incrémenter nb_new_locks
 
-
 * Application read/write lock
   struct flock lck: verrou à poser
 
