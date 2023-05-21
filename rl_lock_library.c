@@ -1022,3 +1022,35 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
     rl_descriptor res = {.fd = new_fd, .file = lfd.file};
     return res;
 }
+
+/******************************************************************************/
+
+pid_t rl_fork() {
+    pid_t err = (pid_t) -1;
+    pid_t pid = fork();
+    if (pid == err)
+        return err;
+    
+    if (pid == 0) {
+        pid_t parent = getppid();
+        pid_t child = getpid();
+        for (int i = 0; i < rla.nb_files; i++) {
+            rl_open_file *file = rla.open_files[i];
+            for (int j = 0; j < file->nb_locks; j++) {
+                rl_lock *lck = &file->lock_table[j];
+                int nb_owners = lck->nb_owners;
+                for (int k = 0; k < nb_owners; k++) {
+                    if (lck->lock_owners[k].pid == parent) {
+                        rl_owner child_owner = {.pid = child,
+                                                .fd = lck->lock_owners[k].fd};
+                        if (add_owner(child_owner, lck) == -1)
+                            return err;
+                    }
+                }
+            }
+        }
+        return 0;
+    }
+
+    return pid;
+}
