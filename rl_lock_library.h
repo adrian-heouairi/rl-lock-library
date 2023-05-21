@@ -18,4 +18,6 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int newd);
 pid_t rl_fork();
 int rl_init_library();
 
+int rl_print_open_file(rl_open_file *file, int display_pids);
+
 #endif
