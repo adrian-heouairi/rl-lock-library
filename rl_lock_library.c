@@ -239,10 +239,9 @@ static void rl_lock_to_flock(const rl_lock *from, struct flock *to) {
  * @return 0 if the owner removal was succesful, -1 on error.
  */
 static int delete_owner_on_criteria(rl_open_file *file,
-                                    int (*crit)(rl_owner, rl_owner), rl_owner owner_crit) {
-    if (crit == NULL || file == NULL || file->nb_locks < 0
-        || file->nb_locks > RL_MAX_LOCKS)
-        return -1;
+        int (*crit)(rl_owner, rl_owner), rl_owner owner_crit) {
+    if (crit == NULL || file == NULL)
+            return -1;
 
     int locks_count = file->nb_locks;
     for (int i = 0; i < file->nb_locks; i++) {
@@ -897,7 +896,52 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
  * @return int 
  */
 int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
-    return -1;   
+    if (lfd.fd < 0 || lfd.file == NULL || cmd != F_SETLK || lck == NULL
+            || lck->l_len <= 0 || (lck->l_type != F_RDLCK
+                    && lck->l_type != F_WRLCK && lck->l_type != F_UNLCK)
+            || (lck->l_whence != SEEK_SET && lck->l_whence != SEEK_CUR
+                    && lck->l_whence != SEEK_END))
+        return -1;
+
+    if (pthread_mutex_lock(&lfd.file->mutex) != 0)
+        return -1;
+
+    pid_t pid;
+    while ((pid = is_lock_applicable(lck, lfd)) > 1) {
+        if (remove_locks_of(pid, lfd.file) == -1)
+            goto error;
+    }
+
+    if (pid == -1)
+        goto error;
+
+    if (pid == 0) {
+        errno = EAGAIN;
+        pthread_mutex_unlock(&lfd.file->mutex);
+        return -1;
+    }
+
+    switch (lck->l_type) {
+      case F_UNLCK:
+        if (apply_unlock(lfd, lck) == -1)
+            goto error;
+        break;
+      case F_RDLCK:
+      case F_WRLCK:
+        if (apply_rw_lock(lfd, lck) == -1)
+            goto error;
+        break;
+      default:
+        goto error;
+    }
+
+    if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
+        return -1;
+    return 0;
+
+ error:
+    pthread_mutex_unlock(&lfd.file->mutex);
+    return -1;
 }
 
 /******************************************************************************/
