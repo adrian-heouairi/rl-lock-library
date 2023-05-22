@@ -246,6 +246,8 @@ int rl_close(rl_descriptor lfd) {
     if (close(lfd.fd) == -1)
         return -1;
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return -1;
     err = pthread_mutex_unlock(&lfd.file->mutex);
     if (err != 0)
         return -1;
@@ -394,6 +396,8 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
                 erase_owner(&rlo->lock_table[i].lock_owners[j]);
         }
 
+        if (msync(rlo, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+            goto error;
         if (pthread_mutex_unlock(&rlo->mutex))
             goto error;
     }
@@ -873,6 +877,7 @@ int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
         goto error;
 
     if (pid == 0) {
+        msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE);
         errno = EAGAIN;
         pthread_mutex_unlock(&lfd.file->mutex);
         return -1;
@@ -892,11 +897,14 @@ int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
         goto error;
     }
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return -1;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
         return -1;
     return 0;
 
  error:
+    msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE);
     pthread_mutex_unlock(&lfd.file->mutex);
     return -1;
 }
@@ -949,6 +957,8 @@ rl_descriptor rl_dup(rl_descriptor lfd) {
         return err;
     }
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return err;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
         return err;
 
@@ -984,6 +994,8 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
         return err;
     }
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return err;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
         return err;
 
@@ -1027,6 +1039,9 @@ pid_t rl_fork() {
                 }
             }
 
+            if (msync(file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE)
+                    == -1)
+                return err;
             if (pthread_mutex_unlock(&file->mutex) != 0)
                 return err;
         }
@@ -1099,6 +1114,8 @@ int rl_print_open_file_safe(rl_open_file *file, int display_pids) {
     if (rl_print_open_file(file, display_pids) < 0)
         return -1;
 
+    if (msync(file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return -1;
     if (pthread_mutex_unlock(&file->mutex) != 0)
         return -1;
 
