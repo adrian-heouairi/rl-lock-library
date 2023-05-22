@@ -835,11 +835,14 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
 }
 
 /**
- * @brief 
- * @param lfd 
- * @param cmd 
- * @param lck 
- * @return int 
+ * @brief Applies the lock or unlock described by `lck` if possible
+ *
+ * When `cmd` is F_SETLK, a non-blocking attempt to apply `lck` is made.
+ * 
+ * @param lfd the descriptor on which `lck` will be applied
+ * @param cmd the action to perform, only F_SETLK is supported
+ * @param lck the lock to apply. A length of 0 or less is not supported
+ * @return 0 on success, -1 on failure
  */
 int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
     if (lfd.fd < 0 || lfd.file == NULL || cmd != F_SETLK || lck == NULL
@@ -982,6 +985,12 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
 
 /******************************************************************************/
 
+/**
+ * @brief Creates a child process by calling the fork() system call and copying
+ * every lock of the parent for the child
+ * @return in the parent: -1 on fork() failure, PID of child on success
+ *         in the child: -1 on lock copy failure, 0 on success
+ */
 pid_t rl_fork() {
     pid_t err = (pid_t) -1;
     pid_t pid = fork();
