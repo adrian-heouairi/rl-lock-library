@@ -1001,12 +1001,12 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
  */
 pid_t rl_fork() {
     pid_t err = (pid_t) -1;
+    pid_t parent = getpid();
     pid_t pid = fork();
     if (pid == err)
         return err;
     
     if (pid == 0) {
-        pid_t parent = getppid();
         pid_t child = getpid();
         for (int i = 0; i < rla.nb_files; i++) {
             rl_open_file *file = rla.open_files[i];
