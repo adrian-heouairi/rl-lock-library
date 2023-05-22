@@ -415,10 +415,14 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
 /**
  * @brief Checks if the segment [s1, s1 + l1[ and [s2, s2 + l2[ overlap
+ *
+ * If l1 or l2 equal 0, the segment is extensible, which would make the segment
+ * as follows: [s*, inf[
+ *
  * @param s1 the start of the first segment
- * @param l1 the length of the first segment
+ * @param l1 the length of the first segment, 0 if extensible
  * @param s2 the start of the second segment
- * @param l2 the length of the second segment
+ * @param l2 the length of the second segment, 0 if extensible
  * @return 1 if the segments overlap, 0 otherwise
  */
 static int seg_overlap(off_t s1, off_t l1, off_t s2, off_t l2) {
@@ -496,7 +500,7 @@ static off_t get_start(struct flock *lck, int fd) {
  * died and has not removed its locks, returns the pid of that process.
  */
 static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
-    if (lck == NULL || lfd.file == NULL || lck->l_len <= 0)
+    if (lck == NULL || lfd.file == NULL)
         return -1;
 
     off_t start = get_start(lck, lfd.fd);
@@ -615,10 +619,7 @@ static int is_owner_of(rl_owner owner, rl_lock *lck) {
  * @param first the initial owner of `new`
  */
 static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
-    if (new == NULL || file == NULL || first.pid < 0 || first.fd < 0
-            || (new->type != F_RDLCK && new->type != F_WRLCK) || new->start < 0
-            || new->len <= 0 || file->nb_locks + 1 > RL_MAX_LOCKS
-            || file->nb_locks < 0)
+    if (new == NULL || file == NULL)
         return -1;
     file->lock_table[file->nb_locks] = *new;
     rl_lock *tmp = &file->lock_table[file->nb_locks];
@@ -640,8 +641,7 @@ static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
  * found
  */
 static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
-    if (file == NULL || lck == NULL || file->nb_locks < 0 || lck->start < 0
-            || lck->len <= 0 || (lck->type != F_WRLCK && lck->type != F_RDLCK))
+    if (file == NULL || lck == NULL)
         return NULL;
     for (int i = 0; i < file->nb_locks; i++) {
         rl_lock *tmp = &file->lock_table[i];
@@ -653,21 +653,58 @@ static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
 }
 
 /**
+ * @brief Checks if (s2, l2) is strictly in the middle of (s1, l1)
+ * @param s1 the start of the first segment
+ * @param l1 the length of the first segment, 0 if extensible
+ * @param s2 the start of the second segment
+ * @param l2 the length of the second segment, 0 if extensible
+ * @return 1 if (s2, l2) is strictly in the middle of (s1, l1), 0 otherwise
+ */
+static int strictly_in_middle(off_t s1, off_t l1, off_t s2, off_t l2) {
+    return (l1 > 0 && l2 > 0 && s1 < s2 && s1 + l1 > s2 + l2)
+        || (s1 < s2 && l2 != 0);
+}
+
+/**
+ * @brief Checks if (s2, l2) covers entirely (s1, l1)
+ * @param s1 the start of the first segment
+ * @param l1 the length of the first segment, 0 if extensible
+ * @param s2 the start of the second segment
+ * @param l2 the length of the second segment, 0 if extensible
+ * @return 1 if (s2, l2) covers entirely (s1, l1), 0 otherwise
+ */
+static int covers_entirely(off_t s1, off_t l1, off_t s2, off_t l2) {
+    return (l1 > 0 && l2 > 0 && s1 >= s2 && s1 + l1 <= s2 + l2)
+        || (l2 == 0 && s2 < s1);
+}
+
+/**
+ * @brief Checks if (s2, l2) covers the end of (s1, l1)
+ * @param s1 the start of the first segment
+ * @param l1 the length of the first segment, 0 if extensible
+ * @param s2 the start of the second segment
+ * @param l2 the length of the second segment, 0 if extensible
+ * @return 1 if (s2, l2) covers entirely (s1, l1), 0 otherwise
+ */
+static int covers_end(off_t s1, off_t l1, off_t s2, off_t l2) {
+    return (l1 > 0 && l2 > 0 && s1 < s2 && s1 + l1 <= s2 + l2)
+        || (l1 == 0 && s1 > s2);
+}
+
+/**
  * @brief Unlocks the region delimited by `lck` of the open file pointed by
  * `lfd`
  *
- * `lck` must be of type `F_UNLCK`, the region to lock must be finite (not
- * extensible) and must start at or after the beginning of the file. This
- * function does not use any locking mechanism, ensure mutual exclusion before
- * the call.
+ * `lck` must be of type `F_UNLCK` and must start at or after the beginning of
+ * the file. This function does not use any locking mechanism, ensure mutual
+ * exclusion before the call.
  *
  * @param lfd the file descriptor to unlock
  * @param lck the region to unlock
  * @return 0 on success, -1 on error
  */
 static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
-    if (lfd.fd < 0 || lfd.file == NULL || lck == NULL || lck->l_type != F_UNLCK
-            || lck->l_len <= 0 || lfd.file->nb_locks < 0)
+    if (lfd.file == NULL || lck == NULL)
         return -1;
 
     off_t lck_start = get_start(lck, lfd.fd);
@@ -686,8 +723,8 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
                 && seg_overlap(lck_start, lck->l_len, cur->start, cur->len)) {
             locks_to_remove[nb_locks_to_remove] = i;
             nb_locks_to_remove++;
-            if (cur->start < lck_start /* strict unlock of cur middle */
-                    && cur->start + cur->len > lck_start + lck->l_len) {
+            if (strictly_in_middle(cur->start, cur->len, lck_start,
+                            lck->l_len)) {
                 rl_lock l1, l2;
                 l1.type = cur->type;
                 l1.start = cur->start;
@@ -697,14 +734,15 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
 
                 l2.type = cur->type;
                 l2.start = lck_start + lck->l_len;
-                l2.len = (cur->start + cur->len) - (lck_start + lck->l_len);
+                l2.len = (cur->len == 0) ?
+                    0 : (cur->start + cur->len) - (lck_start + lck->l_len);
                 new_locks[nb_new_locks] = l2;
                 nb_new_locks++;
-            } else if (cur->start >= lck_start /* unlock cur entirely */
-                    && cur->start + cur->len <= lck_start + lck->l_len)
+                
+            } else if (covers_entirely(cur->start, cur->len, lck_start,
+                            lck->l_len))
                 continue;
-            else if (cur->start < lck_start /* unlock end of cur */
-                    && cur->start + cur->len <= lck_start + lck->l_len) {
+            else if (covers_end(cur->start, cur->len, lck_start, lck->l_len)) {
                 rl_lock l1;
                 l1.type = cur->type;
                 l1.start = cur->start;
@@ -715,7 +753,8 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
                 rl_lock l1;
                 l1.type = cur->type;
                 l1.start = lck_start + lck->l_len;
-                l1.len = (cur->start + cur->len) - (lck_start + lck->l_len);
+                l1.len = (cur->len == 0) ?
+                    0 : (cur->start + cur->len) - (lck_start + lck->l_len);
                 new_locks[nb_new_locks] = l1;
                 nb_new_locks++;
             }
@@ -811,7 +850,7 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
         unlock_left = 1;
         unlock_right = 1;
     } else if (left != NULL) {
-        tmp.len += left->len;
+        tmp.len += (tmp.len == 0) ? 0 : left->len;
         tmp.start = left->start;
         unlock_left = 1;
     } else if (right != NULL) {
@@ -858,8 +897,9 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
  */
 int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
     if (lfd.fd < 0 || lfd.file == NULL || cmd != F_SETLK || lck == NULL
-            || lck->l_len <= 0 || (lck->l_type != F_RDLCK
-                    && lck->l_type != F_WRLCK && lck->l_type != F_UNLCK)
+            || lck->l_len < 0
+            || (lck->l_type != F_RDLCK && lck->l_type != F_WRLCK
+                    && lck->l_type != F_UNLCK)
             || (lck->l_whence != SEEK_SET && lck->l_whence != SEEK_CUR
                     && lck->l_whence != SEEK_END))
         return -1;
