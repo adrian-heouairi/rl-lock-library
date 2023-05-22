@@ -67,7 +67,5 @@ int main() {
     } else
         printf("PARENT: Forked\n");
 
-    
-
     return 0;
 }
