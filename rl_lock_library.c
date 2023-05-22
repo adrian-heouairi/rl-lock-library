@@ -835,9 +835,9 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
         rl_lock *cur = &lfd.file->lock_table[i];
         if (cur->type != lck->l_type || !is_owner_of(lfd_owner, cur))
             continue;
-        if (cur->start + cur->len == lck_start)
+        if (cur->start + cur->len == lck_start && cur->len > 0)
             left = cur;
-        else if (cur->start == lck_start + lck->l_len)
+        else if (cur->start == lck_start + lck->l_len && lck->l_len > 0)
             right = cur;
     }
 
@@ -848,7 +848,7 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
     tmp.start = lck_start;
     tmp.len = lck->l_len;
     if (left != NULL && right != NULL) {
-        tmp.len += left->len + right->len;
+        tmp.len += (right->len == 0) ? 0 : left->len + right->len;
         tmp.start = left->start;
         unlock_left = 1;
         unlock_right = 1;
