@@ -69,7 +69,7 @@ int main() {
     if (rl_fcntl(lfd, F_SETLK, &lck) < 0)
         PANIC_EXIT("rl_fcntl()");
 
-    printf("Placed extensible write lock on at 10\n");
+    printf("Placed extensible write lock at 10\n");
 
     if (rl_print_open_file_safe(lfd.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file()");

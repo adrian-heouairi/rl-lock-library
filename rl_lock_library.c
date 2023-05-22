@@ -619,7 +619,7 @@ static int is_owner_of(rl_owner owner, rl_lock *lck) {
  * @param first the initial owner of `new`
  */
 static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
-    if (new == NULL || file == NULL)
+    if (new == NULL || file == NULL || file->nb_locks + 1 > RL_MAX_LOCKS)
         return -1;
     file->lock_table[file->nb_locks] = *new;
     rl_lock *tmp = &file->lock_table[file->nb_locks];
@@ -675,20 +675,24 @@ static int strictly_in_middle(off_t s1, off_t l1, off_t s2, off_t l2) {
  */
 static int covers_entirely(off_t s1, off_t l1, off_t s2, off_t l2) {
     return (l1 > 0 && l2 > 0 && s1 >= s2 && s1 + l1 <= s2 + l2)
-        || (l2 == 0 && s2 < s1);
+        || (l2 == 0 && s2 <= s1);
 }
 
 /**
  * @brief Checks if (s2, l2) covers the end of (s1, l1)
+ *
+ * (s2, l2) must start strictly after (s1, l1) and may end at the same byte or
+ * after.
+ *
  * @param s1 the start of the first segment
  * @param l1 the length of the first segment, 0 if extensible
  * @param s2 the start of the second segment
  * @param l2 the length of the second segment, 0 if extensible
- * @return 1 if (s2, l2) covers entirely (s1, l1), 0 otherwise
+ * @return 1 if (s2, l2) covers the end of (s1, l1), 0 otherwise
  */
 static int covers_end(off_t s1, off_t l1, off_t s2, off_t l2) {
     return (l1 > 0 && l2 > 0 && s1 < s2 && s1 + l1 <= s2 + l2)
-        || (l1 == 0 && s1 > s2);
+        || (l2 == 0 && s1 < s2);
 }
 
 /**
@@ -800,8 +804,7 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
  * @brief Locks the region specified by `lck` of the open file pointed by
  * `lfd`
  *
- * The region to lock must be finite (not
- * extensible) and must start at or after the beginning of the file. This
+ * The region to lock must start at or after the beginning of the file. This
  * function does not use any locking mechanism, ensure mutual exclusion before
  * the call.
  *
@@ -892,7 +895,7 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
  * 
  * @param lfd the descriptor on which `lck` will be applied
  * @param cmd the action to perform, only F_SETLK is supported
- * @param lck the lock to apply. A length of 0 or less is not supported
+ * @param lck the lock to apply
  * @return 0 on success, -1 on failure
  */
 int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
