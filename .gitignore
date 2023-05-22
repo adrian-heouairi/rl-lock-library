@@ -4,6 +4,9 @@
 # Object files
 *.o
 
+# Test executables
+*.test
+
 # VS code
 .vscode
 
