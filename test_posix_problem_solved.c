@@ -1,0 +1,50 @@
+#include <stdio.h>
+
+#include "panic.h"
+#include "rl_lock_library.h"
+
+int main() {
+    rl_init_library();
+
+    struct flock lck;
+    lck.l_type = F_RDLCK;
+    lck.l_whence = SEEK_SET;
+    lck.l_start = 0;
+    lck.l_len = 5;
+
+#define FILENAME "/tmp/test-posix-problem-solved.txt"
+    rl_descriptor lfd1 = rl_open(FILENAME, O_CREAT | O_RDONLY | O_TRUNC, 0644);
+    if (lfd1.fd < 0 || lfd1.file == NULL)
+        PANIC_EXIT("rl_open()");
+
+    printf("Succesfully opened file\n");
+
+    if (rl_fcntl(lfd1, F_SETLK, &lck) < 0)
+        PANIC_EXIT("rl_fcntl()");
+
+    printf("Succesfully placed read lock\n");
+
+    if (rl_print_open_file(lfd1.file, 0) < 0)
+        PANIC_EXIT("rl_print_open_file()");
+
+    rl_descriptor lfd2 = rl_open(FILENAME, O_RDONLY);
+    if (lfd2.fd < 0 || lfd2.file == NULL)
+        PANIC_EXIT("rl_open()");
+
+    printf("Succesfully opened file, again\n");
+
+    if (rl_close(lfd2) < 0)
+        PANIC_EXIT("rl_close()");
+
+    printf("Succesfully closed second file description\n");
+
+    if (rl_print_open_file(lfd1.file, 0) < 0)
+        PANIC_EXIT("rl_print_open_file()");
+
+    if (rl_close(lfd1) < 0)
+        PANIC_EXIT("rl_close()");
+
+    printf("Succesfully closed first file description\n");
+
+    return 0;
+}
