@@ -38,7 +38,7 @@ int main() {
     if (lfd2.fd < 0 || lfd2.file == NULL)
         PANIC_EXIT("rl_open()");
 
-    printf("Succesfully opened file, again\n");
+    printf("\nSuccesfully opened file, again\n");
 
     if (rl_close(lfd2) < 0)
         PANIC_EXIT("rl_close()");

@@ -43,7 +43,7 @@ int main() {
 
         if (rl_print_open_file_safe(lfd.file, 1) < 0)
             PANIC_EXIT("rl_print_open_file_safe()");
-
+        printf("\n");
         lck.l_start = 5;
         lck.l_len = 10;
 
@@ -57,7 +57,7 @@ int main() {
 
         if (rl_close(lfd) < 0)
             PANIC_EXIT("rl_close()");
-
+        printf("\n");
         printf("CHILD: Succesfully closed file description\n");
         
         if (rl_print_open_file_safe(lfd.file, 1) < 0)
