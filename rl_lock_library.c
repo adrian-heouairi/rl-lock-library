@@ -246,6 +246,8 @@ int rl_close(rl_descriptor lfd) {
     if (close(lfd.fd) == -1)
         return -1;
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return -1;
     err = pthread_mutex_unlock(&lfd.file->mutex);
     if (err != 0)
         return -1;
@@ -272,15 +274,21 @@ int rl_init_library() {
 
 /**
  * @brief Adds the given open file to the open file descriptions of this process
+ * if it is not already there
  *
- * Fails if rla is full.
+ * Fails if rla is full and rlo must be added
  *
- * @parm rlo the open file to add
+ * @param rlo the open file to add
  * @return 0 on success, -1 on error
  */
 static int add_to_rla(rl_open_file *rlo) {
+    for (int i = 0; i < rla.nb_files; i++)
+        if (rla.open_files[i] == rlo)
+            return 0;
+
     if (rla.nb_files >= RL_MAX_FILES)
         return -1;
+
     rla.open_files[rla.nb_files] = rlo;
     rla.nb_files++;
     return 0;
@@ -341,6 +349,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
     }
 
     int shm_res = shm_open(shm_path, O_RDWR, 0);
+    int shm_res2 = -1;
     rl_open_file *rlo = NULL;
     // Problem: process 1 creates the shm and is paused before initializing it
     // then process 2 comes here and the shm exists but is not initialized
@@ -353,7 +362,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
             return err_desc;
         }
     } else { // We create the shm
-        int shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
+        shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
                 S_IRWXU | S_IRWXG | S_IRWXO);
         if (shm_res2 == -1) {
             close(open_res);
@@ -387,14 +396,17 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
                 erase_owner(&rlo->lock_table[i].lock_owners[j]);
         }
 
+        if (msync(rlo, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+            goto error;
         if (pthread_mutex_unlock(&rlo->mutex))
             goto error;
+    }
 
-        if (add_to_rla(rlo) == -1) {
-            close(open_res);
-            close(shm_res2);
-            return err_desc;
-        }
+    if (add_to_rla(rlo) == -1) {
+        close(open_res);
+        close(shm_res);
+        close(shm_res2);
+        return err_desc;
     }
 
     rl_descriptor desc = {.fd = open_res, .file = rlo};
@@ -865,6 +877,7 @@ int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
         goto error;
 
     if (pid == 0) {
+        msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE);
         errno = EAGAIN;
         pthread_mutex_unlock(&lfd.file->mutex);
         return -1;
@@ -884,11 +897,14 @@ int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
         goto error;
     }
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return -1;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
         return -1;
     return 0;
 
  error:
+    msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE);
     pthread_mutex_unlock(&lfd.file->mutex);
     return -1;
 }
@@ -941,6 +957,8 @@ rl_descriptor rl_dup(rl_descriptor lfd) {
         return err;
     }
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return err;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
         return err;
 
@@ -976,6 +994,8 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
         return err;
     }
 
+    if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return err;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
         return err;
 
@@ -1019,6 +1039,9 @@ pid_t rl_fork() {
                 }
             }
 
+            if (msync(file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE)
+                    == -1)
+                return err;
             if (pthread_mutex_unlock(&file->mutex) != 0)
                 return err;
         }
@@ -1091,6 +1114,8 @@ int rl_print_open_file_safe(rl_open_file *file, int display_pids) {
     if (rl_print_open_file(file, display_pids) < 0)
         return -1;
 
+    if (msync(file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+        return -1;
     if (pthread_mutex_unlock(&file->mutex) != 0)
         return -1;
 
