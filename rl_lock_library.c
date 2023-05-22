@@ -854,7 +854,8 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
         unlock_left = 1;
         unlock_right = 1;
     } else if (left != NULL) {
-        tmp.len += left->len;
+        if (tmp.len != 0)
+            tmp.len += left->len;
         tmp.start = left->start;
         unlock_left = 1;
     } else if (right != NULL) {
