@@ -848,16 +848,18 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
     tmp.start = lck_start;
     tmp.len = lck->l_len;
     if (left != NULL && right != NULL) {
-        tmp.len += (right->len == 0) ? 0 : left->len + right->len;
+        if (right->len == 0) tmp.len = 0;
+        else tmp.len += left->len + right->len;
         tmp.start = left->start;
         unlock_left = 1;
         unlock_right = 1;
     } else if (left != NULL) {
-        tmp.len += (tmp.len == 0) ? 0 : left->len;
+        tmp.len += left->len;
         tmp.start = left->start;
         unlock_left = 1;
     } else if (right != NULL) {
-        tmp.len += right->len;
+        if (right->len == 0) tmp.len = 0;
+        else tmp.len += right->len;
         unlock_right = 1;
     }
 
