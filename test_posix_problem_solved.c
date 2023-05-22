@@ -24,8 +24,8 @@ int main() {
 
     printf("Succesfully placed read lock\n");
 
-    if (rl_print_open_file(lfd1.file, 0) < 0)
-        PANIC_EXIT("rl_print_open_file()");
+    if (rl_print_open_file_safe(lfd1.file, 0) < 0)
+        PANIC_EXIT("rl_print_open_file_safe()");
 
     rl_descriptor lfd2 = rl_open(FILENAME, O_RDONLY);
     if (lfd2.fd < 0 || lfd2.file == NULL)
@@ -38,8 +38,8 @@ int main() {
 
     printf("Succesfully closed second file description\n");
 
-    if (rl_print_open_file(lfd1.file, 0) < 0)
-        PANIC_EXIT("rl_print_open_file()");
+    if (rl_print_open_file_safe(lfd1.file, 0) < 0)
+        PANIC_EXIT("rl_print_open_file_safe()");
 
     if (rl_close(lfd1) < 0)
         PANIC_EXIT("rl_close()");

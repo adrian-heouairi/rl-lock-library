@@ -41,8 +41,8 @@ int main() {
     if (pid == 0) {
         printf("CHILD: Forked\n");
 
-        if (rl_print_open_file(lfd.file, 1) < 0)
-            PANIC_EXIT("rl_print_open_file()");
+        if (rl_print_open_file_safe(lfd.file, 1) < 0)
+            PANIC_EXIT("rl_print_open_file_safe()");
 
         lck.l_start = 5;
         lck.l_len = 10;
@@ -52,16 +52,16 @@ int main() {
 
         printf("CHILD: Placed read lock on [5; 15[\n");
 
-        if (rl_print_open_file(lfd.file, 1) < 0)
-            PANIC_EXIT("rl_print_open_file()");
+        if (rl_print_open_file_safe(lfd.file, 1) < 0)
+            PANIC_EXIT("rl_print_open_file_safe()");
 
         if (rl_close(lfd) < 0)
             PANIC_EXIT("rl_close()");
 
         printf("CHILD: Succesfully closed file description\n");
         
-        if (rl_print_open_file(lfd.file, 1) < 0)
-            PANIC_EXIT("rl_print_open_file()");
+        if (rl_print_open_file_safe(lfd.file, 1) < 0)
+            PANIC_EXIT("rl_print_open_file_safe()");
 
         return 0;
     } else

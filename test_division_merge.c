@@ -39,8 +39,8 @@ int main() {
         goto error;
     }
 
-    if (rl_print_open_file(lfd.file, 0) < 0) {
-        fprintf(stderr, "rl_print_open_file()\n");
+    if (rl_print_open_file_safe(lfd.file, 0) < 0) {
+        fprintf(stderr, "rl_print_open_file_safe()\n");
         goto error;
     }
 
@@ -57,8 +57,8 @@ int main() {
         goto error;
     }
 
-    if (rl_print_open_file(lfd.file, 0) < 0) {
-        fprintf(stderr, "rl_print_open_file()\n");
+    if (rl_print_open_file_safe(lfd.file, 0) < 0) {
+        fprintf(stderr, "rl_print_open_file_safe()\n");
         goto error;
     }
 
@@ -75,8 +75,8 @@ int main() {
         goto error;
     }
 
-    if (rl_print_open_file(lfd.file, 0) < 0) {
-        fprintf(stderr, "rl_print_open_file()\n");
+    if (rl_print_open_file_safe(lfd.file, 0) < 0) {
+        fprintf(stderr, "rl_print_open_file_safe()\n");
         goto error;
     }
 
