@@ -50,6 +50,7 @@ int main() {
 
     if (rl_print_open_file_safe(lfd.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file()");
+    printf("\n");
 
     lck.l_type = F_UNLCK;
     lck.l_start = 0;
@@ -62,6 +63,7 @@ int main() {
 
     if (rl_print_open_file_safe(lfd.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file()");
+    printf("\n");
 
     lck.l_type = F_WRLCK;
     lck.l_start = 10;
@@ -73,6 +75,7 @@ int main() {
 
     if (rl_print_open_file_safe(lfd.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file()");
+    printf("\n");
 
     lck.l_type = F_RDLCK;
     lck.l_start = 15;
@@ -85,6 +88,7 @@ int main() {
 
     if (rl_print_open_file_safe(lfd.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file()");
+    printf("\n");
 
     if (rl_close(lfd) < 0)
         PANIC_EXIT("rl_close()");
@@ -93,6 +97,7 @@ int main() {
 
     if (rl_print_open_file_safe(lfd.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file()");
+    printf("\n");
 
     if (unlink(FILENAME) < 0)
         PANIC_EXIT("unlink()");
