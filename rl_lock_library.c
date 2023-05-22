@@ -187,7 +187,7 @@ static void rl_lock_to_flock(const rl_lock *from, struct flock *to) {
 static int delete_owner_on_criteria(rl_open_file *file,
         int (*crit)(rl_owner, rl_owner), rl_owner owner_crit) {
     if (crit == NULL || file == NULL)
-            return -1;
+        return -1;
 
     int locks_count = file->nb_locks;
     for (int i = 0; i < file->nb_locks; i++) {
@@ -333,7 +333,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
     char shm_path[256];
     int snprintf_res = snprintf(shm_path, 256, "/%s_%lu_%lu", SHM_PREFIX,
-                                st.st_dev, st.st_ino);
+            st.st_dev, st.st_ino);
     if (snprintf_res < 0) {
         close(open_res);
         errno = ECANCELED;
@@ -346,7 +346,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
     // then process 2 comes here and the shm exists but is not initialized
     if (shm_res >= 0) {
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
-                   MAP_SHARED, shm_res, 0);
+                MAP_SHARED, shm_res, 0);
         if (rlo == MAP_FAILED) {
             close(open_res);
             close(shm_res);
@@ -354,7 +354,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         }
     } else { // We create the shm
         int shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
-                                S_IRWXU | S_IRWXG | S_IRWXO);
+                S_IRWXU | S_IRWXG | S_IRWXO);
         if (shm_res2 == -1) {
             close(open_res);
             shm_unlink(shm_path);
@@ -371,7 +371,7 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         }
 
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
-                   MAP_SHARED, shm_res2, 0);
+                MAP_SHARED, shm_res2, 0);
         if (rlo == MAP_FAILED)
             goto error;
 
@@ -511,7 +511,7 @@ static pid_t is_lock_applicable(struct flock *lck, rl_descriptor lfd) {
                     for (int j = 0; j < cur->nb_owners; j++) {
                         if (!equals(lfd_owner, cur->lock_owners[j])) {
                             if (kill(cur->lock_owners[j].pid, 0) == -1
-                                && errno == ESRCH) {
+                                    && errno == ESRCH) {
                                 return cur->lock_owners[j].pid;
                             } else {
                                 return 0;
@@ -553,7 +553,7 @@ static int same_pid(rl_owner ol, rl_owner or) {
  */
 static int remove_locks_of(pid_t pid, rl_open_file *file) {
     if (pid <= 0 || file == NULL || file->nb_locks < 0
-        || file->nb_locks > RL_MAX_LOCKS)
+            || file->nb_locks > RL_MAX_LOCKS)
         return -1;
 
     rl_owner cmp = {.pid = pid, .fd = 0};
@@ -570,7 +570,7 @@ static int remove_locks_of(pid_t pid, rl_open_file *file) {
  */
 static int add_owner(rl_owner new, rl_lock *lck) {
     if (new.pid < 0 || new.fd < 0 || lck == NULL || lck->nb_owners < 0
-        || lck->nb_owners + 1 > RL_MAX_OWNERS)
+            || lck->nb_owners + 1 > RL_MAX_OWNERS)
         return -1;
     lck->lock_owners[lck->nb_owners] = new;
     lck->nb_owners++;
@@ -604,9 +604,9 @@ static int is_owner_of(rl_owner owner, rl_lock *lck) {
  */
 static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
     if (new == NULL || file == NULL || first.pid < 0 || first.fd < 0
-        || (new->type != F_RDLCK && new->type != F_WRLCK) || new->start < 0
-        || new->len <= 0 || file->nb_locks + 1 > RL_MAX_LOCKS
-        || file->nb_locks < 0)
+            || (new->type != F_RDLCK && new->type != F_WRLCK) || new->start < 0
+            || new->len <= 0 || file->nb_locks + 1 > RL_MAX_LOCKS
+            || file->nb_locks < 0)
         return -1;
     file->lock_table[file->nb_locks] = *new;
     rl_lock *tmp = &file->lock_table[file->nb_locks];
@@ -629,12 +629,12 @@ static int add_lock(rl_lock *new, rl_open_file *file, rl_owner first) {
  */
 static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
     if (file == NULL || lck == NULL || file->nb_locks < 0 || lck->start < 0
-        || lck->len <= 0 || (lck->type != F_WRLCK && lck->type != F_RDLCK))
+            || lck->len <= 0 || (lck->type != F_WRLCK && lck->type != F_RDLCK))
         return NULL;
     for (int i = 0; i < file->nb_locks; i++) {
         rl_lock *tmp = &file->lock_table[i];
         if (tmp->start == lck->start && tmp->len == lck->len
-            && tmp->type == lck->type)
+                && tmp->type == lck->type)
             return tmp;
     }
     return NULL;
@@ -655,7 +655,7 @@ static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
  */
 static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
     if (lfd.fd < 0 || lfd.file == NULL || lck == NULL || lck->l_type != F_UNLCK
-        || lck->l_len <= 0 || lfd.file->nb_locks < 0)
+            || lck->l_len <= 0 || lfd.file->nb_locks < 0)
         return -1;
 
     off_t lck_start = get_start(lck, lfd.fd);
@@ -671,11 +671,11 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
     for (int i = 0; i < nb_locks; i++) {
         rl_lock *cur = &lfd.file->lock_table[i];
         if (is_owner_of(lfd_owner, cur)
-            && seg_overlap(lck_start, lck->l_len, cur->start, cur->len)) {
+                && seg_overlap(lck_start, lck->l_len, cur->start, cur->len)) {
             locks_to_remove[nb_locks_to_remove] = i;
             nb_locks_to_remove++;
             if (cur->start < lck_start /* strict unlock of cur middle */
-                && cur->start + cur->len > lck_start + lck->l_len) {
+                    && cur->start + cur->len > lck_start + lck->l_len) {
                 rl_lock l1, l2;
                 l1.type = cur->type;
                 l1.start = cur->start;
@@ -689,10 +689,10 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
                 new_locks[nb_new_locks] = l2;
                 nb_new_locks++;
             } else if (cur->start >= lck_start /* unlock cur entirely */
-                       && cur->start + cur->len <= lck_start + lck->l_len)
+                    && cur->start + cur->len <= lck_start + lck->l_len)
                 continue;
             else if (cur->start < lck_start /* unlock end of cur */
-                     && cur->start + cur->len <= lck_start + lck->l_len) {
+                    && cur->start + cur->len <= lck_start + lck->l_len) {
                 rl_lock l1;
                 l1.type = cur->type;
                 l1.start = cur->start;
@@ -929,11 +929,17 @@ rl_descriptor rl_dup(rl_descriptor lfd) {
     if (new_fd == -1)
         return err;
     
+    if (pthread_mutex_lock(&lfd.file->mutex) != 0)
+        return err;
+
     rl_owner new_owner = {.pid = getpid(), .fd = new_fd};
     if (dup_owner(lfd, new_owner) == -1) {
         close(new_fd);
         return err;
     }
+
+    if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
+        return err;
 
     rl_descriptor res = {.fd = new_fd, .file = lfd.file};
     return res;
@@ -955,15 +961,20 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
     if (lfd.fd == new_fd)
         return lfd;
 
-    int code = dup2(lfd.fd, new_fd);
-    if (code == -1)
+    if (dup2(lfd.fd, new_fd) == -1)
         return err;
     
+    if (pthread_mutex_lock(&lfd.file->mutex) != 0)
+        return err;
+
     rl_owner new_owner = {.pid = getpid(), .fd = new_fd};
     if (dup_owner(lfd, new_owner) == -1) {
         close(new_fd);
         return err;
     }
+
+    if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
+        return err;
 
     rl_descriptor res = {.fd = new_fd, .file = lfd.file};
     return res;
@@ -982,6 +993,10 @@ pid_t rl_fork() {
         pid_t child = getpid();
         for (int i = 0; i < rla.nb_files; i++) {
             rl_open_file *file = rla.open_files[i];
+
+            if (pthread_mutex_lock(&file->mutex) != 0)
+                return err;
+
             for (int j = 0; j < file->nb_locks; j++) {
                 rl_lock *lck = &file->lock_table[j];
                 int nb_owners = lck->nb_owners;
@@ -994,6 +1009,9 @@ pid_t rl_fork() {
                     }
                 }
             }
+
+            if (pthread_mutex_unlock(&file->mutex) != 0)
+                return err;
         }
         return 0;
     }
@@ -1011,38 +1029,61 @@ pid_t rl_fork() {
  */
 int rl_print_open_file(rl_open_file *file, int display_pids) {
     char buffer[16384] = "";
-    int length = 0;
+    int len = 0;
 
-    length += sprintf(buffer + length, "Number of locks: %d\n",
-    file->nb_locks);
+    len += sprintf(buffer + len, "Number of locks: %d\n",
+            file->nb_locks);
 
     for (int i = 0; i < file->nb_locks; i++) {
         rl_lock *lck = &file->lock_table[i];
 
-        length += sprintf(buffer + length, "===== Lock %d:\n", i);
+        len += sprintf(buffer + len, "===== Lock %d:\n", i);
 
         if (lck->type == F_RDLCK)
-            length += sprintf(buffer + length, "Type: read\n");
+            len += sprintf(buffer + len, "Type: read\n");
         else
-            length += sprintf(buffer + length, "Type: write\n");
+            len += sprintf(buffer + len, "Type: write\n");
 
-        length += sprintf(buffer + length, "Start: %ld\n", lck->start);
-        length += sprintf(buffer + length, "Length: %ld\n", lck->len);
+        len += sprintf(buffer + len, "Start: %ld\n", lck->start);
+        len += sprintf(buffer + len, "Length: %ld\n", lck->len);
 
-        length += sprintf(buffer + length, "Number of owners: %lu\n",
-        lck->nb_owners);
+        len += sprintf(buffer + len, "Number of owners: %lu\n",
+                lck->nb_owners);
         for (int j = 0; j < lck->nb_owners; j++) {
             rl_owner *owner = &lck->lock_owners[j];
 
             if (display_pids)
-                length += sprintf(buffer + length,
-        "Owner %d: fd = %d, pid = %d\n", j, owner->fd, owner->pid);
+                len += sprintf(buffer + len, "Owner %d: fd = %d, pid = %d\n", j,
+                        owner->fd, owner->pid);
             else
-                length += sprintf(buffer + length,
-                "Owner %d: fd = %d\n", j, owner->fd);
+                len += sprintf(buffer + len,
+                        "Owner %d: fd = %d\n", j, owner->fd);
         }
     }
 
     printf("%s", buffer);
+    return 0;
+}
+
+/**
+ * @brief Prints an `rl_open_file` to standard output
+ *
+ * In order to print, this function takes the lock on the open file in order to
+ * guarantee mutual exclusion during the print.
+ *
+ * @param file the open file to print
+ * @param display_pids whether to print owner PIDs
+ * @return 0 on success, -1 on error
+ */
+int rl_print_open_file_safe(rl_open_file *file, int display_pids) {
+    if (pthread_mutex_lock(&file->mutex) != 0)
+        return -1;
+    
+    if (rl_print_open_file(file, display_pids) < 0)
+        return -1;
+
+    if (pthread_mutex_unlock(&file->mutex) != 0)
+        return -1;
+
     return 0;
 }
