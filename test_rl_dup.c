@@ -5,8 +5,9 @@
 
 /*
  * This test opens a file, places a lock on it and calls rl_dup() and rl_dup2()
- * on the rl_descriptor. Then we unlock the region for the first rl_descriptor,
- * and we can see that only two owners are left.
+ * on the rl_descriptor. Then we unlock the middle of the region for the
+ * first rl_descriptor, and we can see that only two owners are left for the
+ * first lock, and two new locks appear.
  */
 
 int main() {
@@ -43,9 +44,11 @@ int main() {
     printf("\n");
 
     l.l_type = F_UNLCK;
+    l.l_start = 4;
+    l.l_len = 1;
     if (rl_fcntl(lfd, F_SETLK, &l))
         PANIC_EXIT("rl_fcntl");
 
-    printf("After unlock on fd 3:\n");
+    printf("After unlock in the middle on fd 3:\n");
     rl_print_open_file_safe(lfd.file, 1);
 }
