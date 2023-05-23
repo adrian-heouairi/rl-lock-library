@@ -152,9 +152,9 @@ int main() {
         printf("\n");
         
         lck2.l_type = F_RDLCK;
-        lck.l_whence = SEEK_SET;
-        lck.l_start = 25;
-        lck.l_len = 25;
+        lck2.l_whence = SEEK_SET;
+        lck2.l_start = 25;
+        lck2.l_len = 25;
 
         if (rl_fcntl(lfd2, F_SETLK, &lck2) < 0)
             PANIC_EXIT("rl_fcntl()");

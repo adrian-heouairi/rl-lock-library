@@ -887,7 +887,6 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
         if (add_lock(&tmp, lfd.file, lfd_owner) == -1)
             return -1;
     }
-    
     return 0;
 }
 
