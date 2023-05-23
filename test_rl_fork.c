@@ -1,16 +1,19 @@
+#include <sys/types.h>
+#include <sys/wait.h>
+
 #include "panic.h"
 #include "rl_lock_library.h"
 
 /*
- * The parent process creates a new empty file. It places a read locks on the
- * first 10 bytes of the file. After the rl_fork, the locks of the parent
- * process are duplicated and the duplication is owned by the child process.
- * The child process places a read lock on the bytes [5; 15[, which causes the
- * removal of its read lock on [0; 10[ and the application of a new read lock
- * (atomically) on the bytes [0; 15[, of which it is the unique owner. This test
- * demonstrates the action of rl_fork and the possibility to have several read
- * locks on the same region. Also on rl_close, the locks placed by the child
- * process are removed.
+ * The parent process creates a new empty file. It places a read lock on the
+ * first 10 bytes of the file, forks then waits for the death of its child.
+ * After the rl_fork, the child is added as owner of every lock owned by the
+ * parent. The child process places a read lock on the bytes [5; 15[, which
+ * causes the removal of its read lock on [0; 10[ co-owned with the parent and
+ * the application of a new read lock, atomically, on the bytes [0; 15[, of
+ * which it is the unique owner. This test demonstrates the action of rl_fork
+ * and the possibility to have several read locks on the same region. Also on
+ * rl_close, the locks placed by each process are removed.
  */
 
 int main() {
@@ -44,6 +47,7 @@ int main() {
         if (rl_print_open_file_safe(lfd.file, 1) < 0)
             PANIC_EXIT("rl_print_open_file_safe()");
         printf("\n");
+
         lck.l_start = 5;
         lck.l_len = 10;
 
@@ -54,20 +58,26 @@ int main() {
 
         if (rl_print_open_file_safe(lfd.file, 1) < 0)
             PANIC_EXIT("rl_print_open_file_safe()");
+        printf("\n");
 
         if (rl_close(lfd) < 0)
             PANIC_EXIT("rl_close()");
         printf("\n");
         printf("CHILD: Succesfully closed file description\n");
-        
-        if (rl_print_open_file_safe(lfd.file, 1) < 0)
-            PANIC_EXIT("rl_print_open_file_safe()");
 
         return 0;
-    } else
+    } else {
         printf("PARENT: Forked\n");
 
-    
+        printf("PARENT: Waiting for child to die\n");
+        if (wait(NULL) < 0)
+            PANIC_EXIT("wait()");
+
+        if (rl_close(lfd) < 0)
+            PANIC_EXIT("rl_close()");
+
+        printf("PARENT: Succesfully closed file description\n");
+    }
 
     return 0;
 }
