@@ -1058,7 +1058,9 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
 /**
  * @brief Applies the lock or unlock described by `lck` if possible
  *
- * When `cmd` is F_SETLK, a non-blocking attempt to apply `lck` is made.
+ * When `cmd` is F_SETLK, a non-blocking attempt to apply `lck` is made. If
+ * attempting to apply a read lock, the file must be open for reading. If
+ * attempting to apply a write lock, the file must be open for writing.
  * 
  * @param lfd the descriptor on which `lck` will be applied
  * @param cmd the action to perform, only F_SETLK is supported
@@ -1072,6 +1074,14 @@ int rl_fcntl(rl_descriptor lfd, int cmd, struct flock *lck) {
                     && lck->l_type != F_UNLCK)
             || (lck->l_whence != SEEK_SET && lck->l_whence != SEEK_CUR
                     && lck->l_whence != SEEK_END))
+        return -1;
+
+    int flags = fcntl(lfd.fd, F_GETFL);
+    if (flags == -1)
+        return -1;
+    if (lck->l_type == F_RDLCK && !(flags & O_RDONLY) && !(flags & O_RDWR))
+        return -1;
+    if (lck->l_type == F_WRLCK && !(flags & O_WRONLY) && !(flags & O_RDWR))
         return -1;
 
     if (pthread_mutex_lock(&lfd.file->mutex) != 0)

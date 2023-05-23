@@ -20,7 +20,7 @@ int main() {
     rl_init_library();
 
 #define FILENAME "/tmp/test-rl-fork.txt"
-    rl_descriptor lfd = rl_open(FILENAME, O_CREAT | O_RDONLY | O_TRUNC, 0644);
+    rl_descriptor lfd = rl_open(FILENAME, O_CREAT | O_RDWR | O_TRUNC, 0644);
     if (lfd.fd < 0 || lfd.file == NULL)
         PANIC_EXIT("rl_open()");
 

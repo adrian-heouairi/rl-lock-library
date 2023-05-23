@@ -20,7 +20,7 @@ int main() {
     lck.l_len = 5;
 
 #define FILENAME "/tmp/test-posix-problem-solved.txt"
-    rl_descriptor lfd1 = rl_open(FILENAME, O_CREAT | O_RDONLY | O_TRUNC, 0644);
+    rl_descriptor lfd1 = rl_open(FILENAME, O_CREAT | O_RDWR | O_TRUNC, 0644);
     if (lfd1.fd < 0 || lfd1.file == NULL)
         PANIC_EXIT("rl_open()");
 
@@ -34,7 +34,7 @@ int main() {
     if (rl_print_open_file_safe(lfd1.file, 0) < 0)
         PANIC_EXIT("rl_print_open_file_safe()");
 
-    rl_descriptor lfd2 = rl_open(FILENAME, O_RDONLY);
+    rl_descriptor lfd2 = rl_open(FILENAME, O_RDWR);
     if (lfd2.fd < 0 || lfd2.file == NULL)
         PANIC_EXIT("rl_open()");
 
