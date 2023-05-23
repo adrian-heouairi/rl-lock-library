@@ -169,10 +169,6 @@ int main() {
             PANIC_EXIT("rl_close()");
 
         printf("Closed locked file description in child process\n");
-
-        if (rl_print_open_file_safe(lfd.file, 0) < 0)
-            PANIC_EXIT("rl_print_open_file()");
-        printf("\n");
     } else { /* parent */
         if (wait(NULL) < 0)
             PANIC_EXIT("wait()");
@@ -181,10 +177,6 @@ int main() {
             PANIC_EXIT("rl_close()");
 
         printf("Closed locked file description in parent process\n");
-
-        if (rl_print_open_file_safe(lfd.file, 0) < 0)
-            PANIC_EXIT("rl_print_open_file()");
-        printf("\n");
 
         if (unlink(FILENAME) < 0)
             PANIC_EXIT("unlink()");

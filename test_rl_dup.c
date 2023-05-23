@@ -52,7 +52,12 @@ int main() {
     printf("After unlock in the middle on fd 3:\n");
     rl_print_open_file_safe(lfd.file, 1);
 
-    rl_close(lfd);
-    rl_close(new_fd);
-    rl_close(new_fd2);
+    if (rl_close(lfd) < 0)
+        return -1;
+
+    if (rl_close(new_fd) < 0)
+        return -1;
+
+    if (rl_close(new_fd2) < 0)
+        return -1;
 }

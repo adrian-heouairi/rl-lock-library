@@ -64,10 +64,6 @@ int main() {
             PANIC_EXIT("rl_close()");
         printf("\n");
         printf("CHILD: Succesfully closed file description\n");
-        
-        if (rl_print_open_file_safe(lfd.file, 1) < 0)
-            PANIC_EXIT("rl_print_open_file_safe()");
-        printf("\n");
 
         return 0;
     } else {
@@ -81,10 +77,6 @@ int main() {
             PANIC_EXIT("rl_close()");
 
         printf("PARENT: Succesfully closed file description\n");
-        
-        if (rl_print_open_file_safe(lfd.file, 1) < 0)
-            PANIC_EXIT("rl_print_open_file_safe()");
-        printf("\n");
     }
 
     return 0;
