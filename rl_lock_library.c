@@ -6,6 +6,7 @@
 #define _XOPEN_SOURCE 500
 #define _POSIX_C_SOURCE 200112L
 
+#include <unistd.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -44,6 +45,115 @@ static int initialize_mutex(pthread_mutex_t *pmutex) {
         return code;
     return pthread_mutex_init(pmutex, &mutexattr);
 }
+
+/******************************************************************************/
+
+/**
+ * @brief Checks if `map_entry` is free
+ * @param map_entry the map entry to check
+ * @return 1 if it is free, 0 otherwise
+ */
+static int is_map_entry_free(rl_pid_fd_count *map_entry) {
+    return map_entry->pid == -1;
+}
+
+/**
+ * @brief Erases `map_entry` if possible
+ * @param map_entry the map entry to free
+ */
+static void erase_map_entry(rl_pid_fd_count *map_entry) {
+    map_entry->pid = -1;
+}
+
+/**
+ * @brief Moves the map entries of `file` in order to fit in the first
+ * `file->nb_map_entries` cells of `file` PID map
+ *
+ * This function does not use any locking mechanism, so be sure to have an
+ * exclusive lock on the structure before organizing its entries in order to
+ * preserve data integrity.
+ *
+ * @param file the file that contains the entries to organize
+ * @return 0 if the entries were successfully organized, -1 on error
+ */
+static int organize_map_entries(rl_open_file *file) {
+    for (int i = 0; i < file->nb_map_entries; i++) {
+        if (is_map_entry_free(&file->pid_map[i])) {
+            int j = i + 1;
+            while (j < RL_MAX_MAP_ENTRIES
+                    && is_map_entry_free(&file->pid_map[j]))
+                j++;
+            if (j >= RL_MAX_MAP_ENTRIES)
+                return -1;
+            file->pid_map[i] = file->pid_map[j];
+            erase_map_entry(&file->pid_map[j]);
+        }
+    }
+    return 0;
+}
+
+/**
+ * @brief Increments the value of key `pid` in the PID-fd count map of
+ * `file`, creating the entry if necessary
+ *
+ * This function does not use any locking mechanism.
+ *
+ * @param file the file that contains the map
+ * @param pid the key of the entry
+ * @return 0 on success, -1 on error
+ */
+static int map_increment(rl_open_file *file, pid_t pid) {
+    rl_pid_fd_count *entry = NULL;
+    for (int i = 0; i < file->nb_map_entries; i++)
+        if (file->pid_map[i].pid == pid)
+            entry = &file->pid_map[i];
+    
+    if (entry == NULL) {
+        if (file->nb_map_entries >= RL_MAX_MAP_ENTRIES)
+            return -1;
+        
+        file->pid_map[file->nb_map_entries].pid = pid;
+        file->pid_map[file->nb_map_entries].fd_count = 1;
+        file->nb_map_entries++;
+    } else
+        entry->fd_count++;
+
+    return 0;
+}
+
+/**
+ * @brief Decrements the value of key `pid` in the PID-fd count map of
+ * `file`, deleting the entry if the value reaches 0
+ *
+ * This function does not use any locking mechanism.
+ *
+ * @param file the file that contains the map
+ * @param pid the key of the entry
+ * @return 0 on success, -1 on error
+ */
+static int map_decrement(rl_open_file *file, pid_t pid) {
+    rl_pid_fd_count *entry = NULL;
+    for (int i = 0; i < file->nb_map_entries; i++)
+        if (file->pid_map[i].pid == pid)
+            entry = &file->pid_map[i];
+
+    if (entry == NULL)
+        return -1;
+    else {
+        entry->fd_count--;
+
+        if (entry->fd_count == 0) {
+            erase_map_entry(entry);
+            file->nb_map_entries--;
+            if (organize_map_entries(file) < 0)
+                return -1;
+        }
+    }
+
+    return 0;
+}
+
+/******************************************************************************/
 
 /**
  * @brief Checks if `owner` is free
@@ -218,6 +328,25 @@ static int delete_owner_on_criteria(rl_open_file *file,
 /******************************************************************************/
 
 /**
+ * @brief Puts in `buffer` the name of the shm corresponding to `fd`
+ * @param fd a file descriptor associated to a regular file
+ * @param buffer a memory zone big enough for the shm name
+ * @return 0 on success, -1 on error
+ */
+static int get_shm_name(int fd, char *buffer) {
+    struct stat st;
+    if (fstat(fd, &st))
+        return -1;
+    
+    int sprintf_res = sprintf(buffer, "/%s_%lu_%lu", SHM_PREFIX,
+            st.st_dev, st.st_ino);
+    if (sprintf_res < 0)
+        return -1;
+    
+    return 0;
+}
+
+/**
  * @brief Closes the given locked file descriptor
  *
  * This function removes from each lock of the descripted open file the owner
@@ -243,7 +372,28 @@ int rl_close(rl_descriptor lfd) {
     if (delete_owner_on_criteria(lfd.file, equals, lfd_owner) < 0)
         return -1;
 
+    char shm_name[256];
+    if (get_shm_name(lfd.fd, shm_name))
+        return -1;
+
     if (close(lfd.fd) == -1)
+        return -1;
+
+    if (map_decrement(lfd.file, getpid()))
+        return -1;
+
+    int unlink_shm = 1;
+    int new_nb_map_entries = lfd.file->nb_map_entries;
+    for (int i = 0; i < lfd.file->nb_map_entries; i++) {
+        rl_pid_fd_count *entry = &lfd.file->pid_map[i];
+        if (kill(entry->pid, 0) == -1 && errno == ESRCH) {
+            erase_map_entry(entry);
+            new_nb_map_entries--;
+        } else
+            unlink_shm = 0;
+    }
+    lfd.file->nb_map_entries = new_nb_map_entries;
+    if (organize_map_entries(lfd.file))
         return -1;
 
     if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
@@ -251,6 +401,12 @@ int rl_close(rl_descriptor lfd) {
     err = pthread_mutex_unlock(&lfd.file->mutex);
     if (err != 0)
         return -1;
+
+    if (unlink_shm) {
+        if (shm_unlink(shm_name))
+            return -1;
+    }
+    
     return 0;
 }
 
@@ -331,20 +487,10 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
 
     if (open_res == -1)
         return err_desc;
-    
-    struct stat st;
-    int fstat_res = fstat(open_res, &st);
-    if (fstat_res == -1) {
-        close(open_res);
-        return err_desc;
-    }
 
     char shm_path[256];
-    int snprintf_res = snprintf(shm_path, 256, "/%s_%lu_%lu", SHM_PREFIX,
-            st.st_dev, st.st_ino);
-    if (snprintf_res < 0) {
+    if (get_shm_name(open_res, shm_path)) {
         close(open_res);
-        errno = ECANCELED;
         return err_desc;
     }
 
@@ -357,10 +503,22 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         rlo = mmap(NULL, sizeof(rl_open_file), PROT_READ | PROT_WRITE,
                 MAP_SHARED, shm_res, 0);
         if (rlo == MAP_FAILED) {
+        error2:
             close(open_res);
             close(shm_res);
             return err_desc;
         }
+
+        if (pthread_mutex_lock(&rlo->mutex))
+            goto error2;
+
+        if (map_increment(rlo, getpid()))
+            goto error2;
+
+        if (msync(rlo, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
+            goto error2;
+        if (pthread_mutex_unlock(&rlo->mutex))
+            goto error2;
     } else { // We create the shm
         shm_res2 = shm_open(shm_path, O_RDWR | O_CREAT,
                 S_IRWXU | S_IRWXG | S_IRWXO);
@@ -387,6 +545,13 @@ rl_descriptor rl_open(const char *path, int oflag, ...) {
         if (initialize_mutex(&rlo->mutex))
             goto error;
         if (pthread_mutex_lock(&rlo->mutex)) 
+            goto error;
+
+        rlo->nb_map_entries = 0;
+        for (int i = 0; i < RL_MAX_MAP_ENTRIES; i++)
+            erase_map_entry(&rlo->pid_map[i]);
+
+        if (map_increment(rlo, getpid()))
             goto error;
 
         rlo->nb_locks = 0;
@@ -1002,6 +1167,9 @@ rl_descriptor rl_dup(rl_descriptor lfd) {
         return err;
     }
 
+    if (map_increment(lfd.file, getpid()))
+        return err;
+
     if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
         return err;
     if (pthread_mutex_unlock(&lfd.file->mutex) != 0)
@@ -1038,6 +1206,9 @@ rl_descriptor rl_dup2(rl_descriptor lfd, int new_fd) {
         close(new_fd);
         return err;
     }
+
+    if (map_increment(lfd.file, getpid()))
+        return err;
 
     if (msync(lfd.file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE) == -1)
         return err;
@@ -1082,6 +1253,23 @@ pid_t rl_fork() {
                             return err;
                     }
                 }
+            }
+
+            // Clone the fd count of the parent
+            rl_pid_fd_count *parent_entry = NULL;
+            for (int z = 0; z < file->nb_map_entries; z++)
+                if (file->pid_map[z].pid == parent)
+                    parent_entry = &file->pid_map[z];
+
+            if (parent_entry != NULL) {
+                if (file->nb_map_entries >= RL_MAX_MAP_ENTRIES)
+                    return err;
+                // TODO: An entry with key == child could very rarely already
+                // exist if the system reuses a PID
+                file->pid_map[file->nb_map_entries].pid = child;
+                file->pid_map[file->nb_map_entries].fd_count
+                        = parent_entry->fd_count;
+                file->nb_map_entries++;
             }
 
             if (msync(file, sizeof(rl_open_file), MS_SYNC | MS_INVALIDATE)

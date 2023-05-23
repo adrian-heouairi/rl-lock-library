@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <pthread.h>
 
+#define RL_MAX_MAP_ENTRIES 256
 #define RL_MAX_OWNERS 32
 #define RL_MAX_LOCKS 32
 #define RL_MAX_FILES 256
@@ -13,11 +14,20 @@
 #define RL_FREE_LOCK -2
 #define SHM_PREFIX "f"
 
+typedef struct rl_pid_fd_count rl_pid_fd_count;
 typedef struct rl_owner rl_owner;
 typedef struct rl_lock rl_lock;
 typedef struct rl_open_file rl_open_file;
 typedef struct rl_descriptor rl_descriptor;
 typedef struct rl_all_files rl_all_files;
+
+/**
+ * @brief A map entry with key = PID and value = fd count
+ */
+struct rl_pid_fd_count {
+    pid_t pid; /**< The PID of a process which has opened a specific file */
+    int fd_count; /**< The number of times the process has opened the file */
+};
 
 /**
  * @brief The owner of a locked segment
@@ -45,6 +55,11 @@ struct rl_open_file {
     int nb_locks; /**< The number of locks */
     pthread_mutex_t mutex; /**< The exclusive lock on the open file */
     rl_lock lock_table[RL_MAX_LOCKS]; /**< The locks on the open file */
+    int nb_map_entries; /**< The number of entries in `pid_map` */
+    rl_pid_fd_count pid_map[RL_MAX_MAP_ENTRIES]; /**< The map storing which
+                                                  * processes have opened the
+                                                  * file and how many times
+                                                  */
 };
 
 /**
