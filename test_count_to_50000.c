@@ -84,7 +84,7 @@ int main() {
     rl_init_library();
 
     /* Create new file and open it */
-    rl_descriptor lfd = rl_open(NAME, O_CREAT | O_WRONLY | O_TRUNC,
+    rl_descriptor lfd = rl_open(NAME, O_CREAT | O_RDWR | O_TRUNC,
             S_IRUSR | S_IWUSR);
     if (lfd.fd == -1 && lfd.file == NULL)
         PANIC_EXIT("rl_open()");
