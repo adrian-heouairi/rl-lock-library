@@ -661,8 +661,7 @@ static rl_lock *find_lock(rl_open_file *file, rl_lock *lck) {
  * @return 1 if (s2, l2) is strictly in the middle of (s1, l1), 0 otherwise
  */
 static int strictly_in_middle(off_t s1, off_t l1, off_t s2, off_t l2) {
-    return (l1 > 0 && l2 > 0 && s1 < s2 && s1 + l1 > s2 + l2)
-        || (s1 < s2 && l2 != 0);
+    return l2 > 0 && s1 < s2 && (l1 == 0 || s1 + l1 > s2 + l2);
 }
 
 /**
@@ -742,7 +741,6 @@ static int apply_unlock(rl_descriptor lfd, struct flock *lck) {
                     0 : (cur->start + cur->len) - (lck_start + lck->l_len);
                 new_locks[nb_new_locks] = l2;
                 nb_new_locks++;
-                
             } else if (covers_entirely(cur->start, cur->len, lck_start,
                             lck->l_len))
                 continue;
@@ -827,7 +825,7 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
     unlock.l_len = lck->l_len;
     if (apply_unlock(lfd, &unlock) == -1)
         return -1;
-    
+
     rl_owner lfd_owner = {.pid = getpid(), .fd = lfd.fd};
     rl_lock *left = NULL;
     rl_lock *right = NULL;
@@ -864,20 +862,22 @@ static int apply_rw_lock(rl_descriptor lfd, struct flock *lck) {
         unlock_right = 1;
     }
 
+    struct flock left2;
     if (unlock_left) {
-        struct flock left2;
         rl_lock_to_flock(left, &left2);
         left2.l_type = F_UNLCK;
-        if (apply_unlock(lfd, &left2) == -1)
-            return -1;
     }
+    struct flock right2;
     if (unlock_right) {
-        struct flock right2;
         rl_lock_to_flock(right, &right2);
         right2.l_type = F_UNLCK;
-        if (apply_unlock(lfd, &right2) == -1)
-            return -1;
     }
+
+    if (unlock_left && apply_unlock(lfd, &left2) == -1)
+        return -1;
+
+    if (unlock_right && apply_unlock(lfd, &right2) == -1)
+        return -1;
 
     rl_lock *tmp2 = find_lock(lfd.file, &tmp);
     if (tmp2 != NULL) {
