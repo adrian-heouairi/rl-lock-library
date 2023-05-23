@@ -13,16 +13,15 @@
  * [10; 15[, a finite read lock on [15; 20[ and an extensible write lock at the
  * 20th byte. Finally, it places an extensible read lock at the 12th byte, which
  * leaves a write lock on [10; 12[ and an extensible read lock at the 12th byte.
- * After that, it creates a child process, without copying its locks. To imitate
- * another process without family linkage with its parent, the child process
- * starts by closing the locked file descriptor inherited by its father,
- * initializes the library (which erases every trace of the parent) and tries to
- * put an extensible write lock at the 11th byte, which is impossible because
- * the parent process owns a write lock on the bytes [10; 12[. It then tries to
- * place a read lock on [25; 50[, which is succesfully placed as no incompatible
- * locks overlap on the segment. The child closes its descriptors then quits,
- * the parent process in the meantime waits for the death of its child, then
- * closes its descriptors and quits.
+ * After that, it creates a child process, To imitate another process without
+ * family linkage with its parent, the child process starts by closing the
+ * locked file descriptor inherited by its father and tries to put an extensible
+ * write lock at the 11th byte, which is impossible because the parent process
+ * owns a write lock on the bytes [10; 12[. It then tries to place a read lock
+ * on [25; 50[, which is succesfully placed as no incompatible locks overlap on
+ * the segment. The child closes its descriptors then quits, the parent process
+ * in the meantime waits for the death of its child, then closes its descriptors
+ * and quits.
  */
 
 int main() {
@@ -116,7 +115,7 @@ int main() {
         PANIC_EXIT("rl_print_open_file()");
     printf("\n");
 
-    pid_t pid = fork();
+    pid_t pid = rl_fork();
     if (pid == 1)
         PANIC_EXIT("fork()");
 
@@ -127,10 +126,6 @@ int main() {
             PANIC_EXIT("rl_close()");
 
         printf("Child closes descriptors of parent process\n");
-
-        rl_init_library();
-
-        printf("Initiliazed library in child process\n");
 
         rl_descriptor lfd2 = rl_open(FILENAME, O_RDWR);
         if (lfd2.fd < 0 || lfd2.file == NULL)
