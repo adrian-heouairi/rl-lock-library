@@ -135,6 +135,8 @@ int main() {
         rl_descriptor lfd2 = rl_open(FILENAME, O_RDWR);
         if (lfd2.fd < 0 || lfd2.file == NULL)
             PANIC_EXIT("rl_open()");
+
+        printf("Open file\n");
         
         struct flock lck2;
         lck2.l_type = F_WRLCK;
