@@ -126,7 +126,7 @@ int main() {
         if (rl_close(lfd) < 0)
             PANIC_EXIT("rl_close()");
 
-        printf("Closed descriptors of parent process\n");
+        printf("Child closes descriptors of parent process\n");
 
         rl_init_library();
 
@@ -136,7 +136,7 @@ int main() {
         if (lfd2.fd < 0 || lfd2.file == NULL)
             PANIC_EXIT("rl_open()");
 
-        printf("Open file\n");
+        printf("Child opens file\n");
         
         struct flock lck2;
         lck2.l_type = F_WRLCK;
